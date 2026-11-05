@@ -1,0 +1,781 @@
+{
+  "users": [
+    {
+      "id": "user-demo-1",
+      "email": "a.a.silva2891@gmail.com",
+      "passwordHash": "xs54bg21",
+      "name": "A. Silva",
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      "plan": "premium",
+      "apiToken": "ml_live_y7bsjzh8kiihfpgj2vg",
+      "createdAt": "2026-11-03T02:58:33.688Z",
+      "settings": {
+        "homeBlocks": [
+          "categories",
+          "favorites",
+          "most_visited",
+          "recent",
+          "read_later",
+          "pinned_notes",
+          "broken_links",
+          "stats"
+        ],
+        "theme": "light",
+        "brokenLinkCheckFrequency": "daily",
+        "reminderCheckFrequency": "daily",
+        "viewMode": "grid"
+      }
+    },
+    {
+      "id": "user-demo-midas",
+      "email": "midas@meuslinks.com",
+      "passwordHash": "demo123",
+      "name": "Midas Corretor",
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      "plan": "premium",
+      "apiToken": "ml_live_midas123456789",
+      "createdAt": "2026-11-03T02:58:33.688Z",
+      "settings": {
+        "homeBlocks": [
+          "categories",
+          "favorites",
+          "most_visited",
+          "recent",
+          "read_later",
+          "pinned_notes",
+          "broken_links",
+          "stats"
+        ],
+        "theme": "light",
+        "brokenLinkCheckFrequency": "daily",
+        "reminderCheckFrequency": "daily",
+        "viewMode": "grid"
+      }
+    }
+  ],
+  "collections": [
+    {
+      "id": "col-1",
+      "userId": "user-demo-1",
+      "name": "Trabalho & Negócios",
+      "description": "Ferramentas essenciais para o dia a dia profissional",
+      "color": "#3B82F6",
+      "icon": "Briefcase",
+      "order": 1,
+      "createdAt": "2026-10-24T02:58:33.688Z",
+      "updatedAt": "2026-11-01T02:58:33.688Z"
+    },
+    {
+      "id": "col-2",
+      "userId": "user-demo-1",
+      "name": "Estudos & IA",
+      "description": "Cursos, documentações e ferramentas de inteligência artificial",
+      "color": "#8B5CF6",
+      "icon": "GraduationCap",
+      "order": 2,
+      "createdAt": "2026-10-26T02:58:33.688Z",
+      "updatedAt": "2026-11-02T02:58:33.688Z"
+    }
+  ],
+  "categories": [
+    {
+      "id": "cat-1",
+      "userId": "user-demo-1",
+      "collectionId": "col-1",
+      "name": "Ferramentas de Produtividade",
+      "description": "Softwares de gestão, automação e comunicação",
+      "coverImage": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=600&auto=format&fit=crop&q=80",
+      "color": "#2563EB",
+      "icon": "Zap",
+      "order": 1,
+      "createdAt": "2026-10-24T02:58:33.688Z",
+      "updatedAt": "2026-11-01T02:58:33.688Z"
+    },
+    {
+      "id": "cat-2",
+      "userId": "user-demo-1",
+      "collectionId": "col-1",
+      "name": "Financeiro & Bancos",
+      "description": "Painéis de controle, bancos e emissão de notas",
+      "coverImage": "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=600&auto=format&fit=crop&q=80",
+      "color": "#059669",
+      "icon": "DollarSign",
+      "order": 2,
+      "createdAt": "2026-10-25T02:58:33.688Z",
+      "updatedAt": "2026-10-31T02:58:33.688Z"
+    }
+  ],
+  "links": [
+    {
+      "id": "link-1",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "subcategoryId": "sub-1793667563236q3dz",
+      "collectionId": "col-1",
+      "title": "Notion",
+      "url": "https://www.notion.so",
+      "description": "Organize projetos, anotações e wikis de equipe com facilidade.",
+      "tags": [
+        "Trabalho",
+        "Produtividade",
+        "Organização"
+      ],
+      "favicon": "https://www.notion.so/front-static/favicon.ico",
+      "previewImage": "https://images.unsplash.com/photo-1484480974693-6ca0a78fb36b?w=600&auto=format&fit=crop&q=80",
+      "isShortcut": false,
+      "shortcutOrder": 1,
+      "isFavorite": true,
+      "isReadLater": false,
+      "isArchived": false,
+      "clickCount": 42,
+      "lastAccessedAt": "2026-11-03T00:58:33.688Z",
+      "order": 1,
+      "createdAt": "2026-10-24T02:58:33.688Z",
+      "updatedAt": "2026-11-04T12:43:33.300Z",
+      "isPrivate": false
+    },
+    {
+      "id": "link-4",
+      "userId": "user-demo-1",
+      "categoryId": "cat-2",
+      "subcategoryId": "sub-fin-fiscal",
+      "collectionId": "col-1",
+      "title": "Receita Federal do Brasil - Portal e-CAC",
+      "url": "https://cav.receita.fazenda.gov.br",
+      "description": "Acesso a serviços fiscais, certidões e declarações de renda.",
+      "tags": [
+        "Financeiro",
+        "Governo",
+        "Documentos"
+      ],
+      "favicon": "https://www.gov.br/favicon.ico",
+      "isShortcut": false,
+      "isFavorite": true,
+      "isReadLater": false,
+      "isArchived": false,
+      "clickCount": 23,
+      "reviewDate": "2026-11-17",
+      "order": 4,
+      "createdAt": "2026-10-26T02:58:33.688Z",
+      "updatedAt": "2026-11-03T02:58:33.688Z"
+    },
+    {
+      "id": "link-1793674826006",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "subcategoryId": "sub-1793667563236q3dz",
+      "title": "Sign in - Google Accounts",
+      "url": "https://aistudio.google.com/u/2/apps/59e049c5-d8b7-4c65-a2c8-27b6d2ff3ac1?showPreview=true&showAssistant=true&fullscreenApplet=true",
+      "description": "",
+      "tags": [],
+      "favicon": "https://www.google.com/s2/favicons?domain=aistudio.google.com&sz=128",
+      "previewImage": "",
+      "isShortcut": false,
+      "isFavorite": false,
+      "isReadLater": false,
+      "isArchived": false,
+      "isPrivate": false,
+      "clickCount": 0,
+      "order": 6,
+      "createdAt": "2026-11-03T03:00:26.006Z",
+      "updatedAt": "2026-11-03T03:00:26.006Z"
+    },
+    {
+      "id": "link-1793676059695",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "title": "Vite Build Tool",
+      "url": "https://vite.dev",
+      "description": "",
+      "tags": [
+        "Extensão",
+        "Dev",
+        "Frontend"
+      ],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fvite.dev&sz=128",
+      "isShortcut": false,
+      "isFavorite": false,
+      "isReadLater": true,
+      "isArchived": false,
+      "clickCount": 0,
+      "source": "extension",
+      "order": 4,
+      "createdAt": "2026-11-03T03:20:59.695Z",
+      "updatedAt": "2026-11-03T03:20:59.695Z"
+    },
+    {
+      "id": "link-1793796186435",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "title": "Youtube",
+      "url": "https://www.youtube.com/watch?v=Xv78tbMrKCA",
+      "description": "",
+      "tags": [],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DXv78tbMrKCA&sz=128",
+      "previewImage": "",
+      "isShortcut": false,
+      "shortcutOrder": 2,
+      "isFavorite": false,
+      "isReadLater": false,
+      "isArchived": false,
+      "isPrivate": false,
+      "clickCount": 0,
+      "order": 5,
+      "createdAt": "2026-11-04T12:43:06.435Z",
+      "updatedAt": "2026-11-04T12:43:32.110Z"
+    },
+    {
+      "id": "link-1793796234376",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "title": "Youtube",
+      "url": "https://www.youtube.com/",
+      "description": "",
+      "tags": [],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fwww.youtube.com%2F&sz=128",
+      "previewImage": "",
+      "isShortcut": true,
+      "shortcutOrder": 1,
+      "isFavorite": false,
+      "isReadLater": false,
+      "isArchived": false,
+      "isPrivate": false,
+      "clickCount": 1,
+      "order": 6,
+      "createdAt": "2026-11-04T12:43:54.376Z",
+      "updatedAt": "2026-11-04T12:43:54.376Z",
+      "lastAccessedAt": "2026-11-04T12:44:10.706Z"
+    },
+    {
+      "id": "link-1793796925553",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "title": "YouTube",
+      "url": "https://www.youtube.com",
+      "description": "",
+      "tags": [
+        "Extensão"
+      ],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fwww.youtube.com&sz=128",
+      "isShortcut": false,
+      "isFavorite": false,
+      "isReadLater": true,
+      "isArchived": false,
+      "clickCount": 0,
+      "source": "extension",
+      "order": 7,
+      "createdAt": "2026-11-04T12:55:25.553Z",
+      "updatedAt": "2026-11-04T12:55:25.553Z"
+    },
+    {
+      "id": "link-1793848310572",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "subcategoryId": "sub-1793667563236q3dz",
+      "title": "MDN Web Docs - Referência",
+      "url": "https://developer.mozilla.org/pt-BR/",
+      "description": "",
+      "tags": [
+        "Extensão"
+      ],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fdeveloper.mozilla.org%2Fpt-BR%2F&sz=128",
+      "isShortcut": false,
+      "isFavorite": true,
+      "isReadLater": false,
+      "isArchived": false,
+      "clickCount": 0,
+      "source": "extension",
+      "order": 8,
+      "createdAt": "2026-11-05T03:11:50.572Z",
+      "updatedAt": "2026-11-05T03:11:50.572Z"
+    },
+    {
+      "id": "link-1793848318499",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "title": "Teste Invalido",
+      "url": "https://example.com/test-fail",
+      "description": "",
+      "tags": [
+        "Extensão"
+      ],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fexample.com%2Ftest-fail&sz=128",
+      "isShortcut": false,
+      "isFavorite": false,
+      "isReadLater": true,
+      "isArchived": false,
+      "clickCount": 0,
+      "source": "extension",
+      "order": 9,
+      "createdAt": "2026-11-05T03:11:58.499Z",
+      "updatedAt": "2026-11-05T03:11:58.499Z"
+    },
+    {
+      "id": "link-1793848352662",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "subcategoryId": "sub-1793667563236q3dz",
+      "title": "React - A biblioteca para interfaces web",
+      "url": "https://react.dev",
+      "description": "",
+      "tags": [
+        "Extensão"
+      ],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Freact.dev&sz=128",
+      "isShortcut": false,
+      "isFavorite": true,
+      "isReadLater": true,
+      "isArchived": false,
+      "clickCount": 0,
+      "source": "extension",
+      "order": 10,
+      "createdAt": "2026-11-05T03:12:32.662Z",
+      "updatedAt": "2026-11-05T03:12:32.662Z"
+    },
+    {
+      "id": "link-1793848473899",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "subcategoryId": "sub-1793667563236q3dz",
+      "title": "Teste Subcategoria TESTE002 Definitivo",
+      "url": "https://exemplo.com/teste-final",
+      "description": "",
+      "tags": [
+        "Extensão"
+      ],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fexemplo.com%2Fteste-final&sz=128",
+      "isShortcut": false,
+      "isFavorite": false,
+      "isReadLater": true,
+      "isArchived": false,
+      "clickCount": 0,
+      "source": "extension",
+      "order": 11,
+      "createdAt": "2026-11-05T03:14:33.899Z",
+      "updatedAt": "2026-11-05T03:14:33.899Z"
+    },
+    {
+      "id": "link-1793849256537",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "subcategoryId": "sub-1793667563236q3dz",
+      "title": "Teste Padrão Ativo",
+      "url": "https://exemplo.com/padrao-ativo",
+      "description": "",
+      "tags": [
+        "Extensão"
+      ],
+      "favicon": "https://www.google.com/s2/favicons?domain=https%3A%2F%2Fexemplo.com%2Fpadrao-ativo&sz=128",
+      "isShortcut": false,
+      "isFavorite": false,
+      "isReadLater": true,
+      "isArchived": false,
+      "clickCount": 0,
+      "source": "extension",
+      "order": 12,
+      "createdAt": "2026-11-05T03:27:36.537Z",
+      "updatedAt": "2026-11-05T03:27:36.537Z"
+    }
+  ],
+  "notes": [
+    {
+      "id": "note-1",
+      "userId": "user-demo-1",
+      "title": "Checklist de Lançamento de Clientes",
+      "content": "1. Validar contratos e certificados digitais.\n2. Configurar conta de e-mail corporativo.\n3. Integrar com Notion e planilhas compartilhadas.\n4. Agendar reunião semanal de alinhamento.",
+      "isPinned": true,
+      "tags": [
+        "Trabalho",
+        "Processos"
+      ],
+      "categoryId": "cat-1",
+      "collectionId": "col-1",
+      "attachments": [],
+      "createdAt": "2026-10-29T02:58:33.688Z",
+      "updatedAt": "2026-11-02T22:58:33.688Z"
+    },
+    {
+      "id": "note-2",
+      "userId": "user-demo-1",
+      "title": "Ideias de Prompts para Gemini e Automações",
+      "content": "Explorar chamadas multimodais para categorização de faturas e extração de metadados em lote de URLs de fornecedores.",
+      "isPinned": true,
+      "tags": [
+        "IA",
+        "Estudos"
+      ],
+      "categoryId": "cat-3",
+      "attachments": [],
+      "createdAt": "2026-11-01T02:58:33.688Z",
+      "updatedAt": "2026-11-03T02:58:33.688Z"
+    }
+  ],
+  "trash": [
+    {
+      "id": "trash-1793674976618h122",
+      "userId": "user-demo-1",
+      "itemType": "link",
+      "entityId": "link-3",
+      "title": "Hugging Face - Hub de Modelos",
+      "originalData": {
+        "id": "link-3",
+        "userId": "user-demo-1",
+        "categoryId": "cat-3",
+        "collectionId": "col-2",
+        "title": "Hugging Face - Hub de Modelos",
+        "url": "https://huggingface.co",
+        "description": "Comunidade e plataforma de modelos de machine learning e datasets abertos.",
+        "tags": [
+          "IA",
+          "Estudos",
+          "Open Source"
+        ],
+        "favicon": "https://huggingface.co/favicon.ico",
+        "previewImage": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=600&auto=format&fit=crop&q=80",
+        "isShortcut": true,
+        "shortcutOrder": 3,
+        "isFavorite": false,
+        "isReadLater": true,
+        "isArchived": false,
+        "clickCount": 14,
+        "reviewDate": "2026-11-06",
+        "order": 3,
+        "createdAt": "2026-10-29T02:58:33.688Z",
+        "updatedAt": "2026-11-03T02:58:33.688Z"
+      },
+      "deletedAt": "2026-11-03T03:02:56.618Z",
+      "expiresAt": "2026-12-03T03:02:56.618Z"
+    },
+    {
+      "id": "trash-1793674976618dyfo",
+      "userId": "user-demo-1",
+      "itemType": "link",
+      "entityId": "link-2",
+      "title": "Google AI Studio",
+      "originalData": {
+        "id": "link-2",
+        "userId": "user-demo-1",
+        "categoryId": "cat-3",
+        "collectionId": "col-2",
+        "title": "Google AI Studio",
+        "url": "https://aistudio.google.com",
+        "description": "Ambiente de prototipagem rápida e desenvolvimento com modelos Gemini.",
+        "tags": [
+          "IA",
+          "Google",
+          "Desenvolvimento"
+        ],
+        "favicon": "https://www.gstatic.com/lamda/images/favicon_v1_150160cddff7f294ce10.svg",
+        "previewImage": "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=600&auto=format&fit=crop&q=80",
+        "isShortcut": true,
+        "shortcutOrder": 2,
+        "isFavorite": true,
+        "isReadLater": false,
+        "isArchived": false,
+        "clickCount": 88,
+        "lastAccessedAt": "2026-11-03T02:58:33.688Z",
+        "order": 2,
+        "createdAt": "2026-10-27T02:58:33.688Z",
+        "updatedAt": "2026-11-03T02:58:33.688Z"
+      },
+      "deletedAt": "2026-11-03T03:02:56.618Z",
+      "expiresAt": "2026-12-03T03:02:56.618Z"
+    },
+    {
+      "id": "trash-1793674976618",
+      "userId": "user-demo-1",
+      "itemType": "category",
+      "entityId": "cat-3",
+      "title": "Inteligência Artificial",
+      "originalData": {
+        "id": "cat-3",
+        "userId": "user-demo-1",
+        "collectionId": "col-2",
+        "name": "Inteligência Artificial",
+        "description": "Modelos, geradores e assistentes de código",
+        "coverImage": "https://images.unsplash.com/photo-1677442136019-21780efad99a?w=600&auto=format&fit=crop&q=80",
+        "color": "#7C3AED",
+        "icon": "Sparkles",
+        "order": 3,
+        "createdAt": "2026-10-27T02:58:33.688Z",
+        "updatedAt": "2026-11-02T02:58:33.688Z"
+      },
+      "deletedAt": "2026-11-03T03:02:56.618Z",
+      "expiresAt": "2026-12-03T03:02:56.618Z"
+    },
+    {
+      "id": "trash-1793674967097tccg",
+      "userId": "user-demo-1",
+      "itemType": "link",
+      "entityId": "link-5",
+      "title": "Dribbble - Inspiração de Interface e Design",
+      "originalData": {
+        "id": "link-5",
+        "userId": "user-demo-1",
+        "categoryId": "cat-4",
+        "title": "Dribbble - Inspiração de Interface e Design",
+        "url": "https://dribbble.com",
+        "description": "Comunidade global de designers compartilhando telas e ilustrações.",
+        "tags": [
+          "Design",
+          "Criatividade",
+          "Inspiração"
+        ],
+        "favicon": "https://cdn.dribbble.com/assets/favicon-b38525134603b9513174ec887944bde259c745778b4081c70e28f32810a95574.ico",
+        "previewImage": "https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=600&auto=format&fit=crop&q=80",
+        "isShortcut": false,
+        "isFavorite": false,
+        "isReadLater": true,
+        "isArchived": false,
+        "clickCount": 11,
+        "order": 5,
+        "createdAt": "2026-10-30T02:58:33.688Z",
+        "updatedAt": "2026-11-03T02:58:33.688Z"
+      },
+      "deletedAt": "2026-11-03T03:02:47.097Z",
+      "expiresAt": "2026-12-03T03:02:47.097Z"
+    },
+    {
+      "id": "trash-1793674967097",
+      "userId": "user-demo-1",
+      "itemType": "category",
+      "entityId": "cat-4",
+      "title": "Design & Inspiração",
+      "originalData": {
+        "id": "cat-4",
+        "userId": "user-demo-1",
+        "name": "Design & Inspiração",
+        "description": "Portfólios, paletas e referências visuais",
+        "coverImage": "https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=600&auto=format&fit=crop&q=80",
+        "color": "#DB2777",
+        "icon": "Palette",
+        "order": 4,
+        "createdAt": "2026-10-28T02:58:33.688Z",
+        "updatedAt": "2026-11-03T02:58:33.688Z"
+      },
+      "deletedAt": "2026-11-03T03:02:47.097Z",
+      "expiresAt": "2026-12-03T03:02:47.097Z"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "log-1793849256537",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793849256537",
+      "entityTitle": "Teste Padrão Ativo",
+      "details": "Link salvo via Extensão do Navegador",
+      "timestamp": "2026-11-05T03:27:36.537Z"
+    },
+    {
+      "id": "log-1793848473899",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793848473899",
+      "entityTitle": "Teste Subcategoria TESTE002 Definitivo",
+      "details": "Link salvo via Extensão do Navegador",
+      "timestamp": "2026-11-05T03:14:33.899Z"
+    },
+    {
+      "id": "log-1793848352662",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793848352662",
+      "entityTitle": "React - A biblioteca para interfaces web",
+      "details": "Link salvo via Extensão do Navegador",
+      "timestamp": "2026-11-05T03:12:32.662Z"
+    },
+    {
+      "id": "log-1793848318499",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793848318499",
+      "entityTitle": "Teste Invalido",
+      "details": "Link salvo via Extensão do Navegador",
+      "timestamp": "2026-11-05T03:11:58.499Z"
+    },
+    {
+      "id": "log-1793848310572",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793848310572",
+      "entityTitle": "MDN Web Docs - Referência",
+      "details": "Link salvo via Extensão do Navegador",
+      "timestamp": "2026-11-05T03:11:50.572Z"
+    },
+    {
+      "id": "log-1793796925553",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793796925553",
+      "entityTitle": "YouTube",
+      "details": "Link salvo via Extensão do Navegador",
+      "timestamp": "2026-11-04T12:55:25.553Z"
+    },
+    {
+      "id": "log-1793796234376",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793796234376",
+      "entityTitle": "Youtube",
+      "details": "Link criado: https://www.youtube.com/",
+      "timestamp": "2026-11-04T12:43:54.376Z"
+    },
+    {
+      "id": "log-1793796213300",
+      "userId": "user-demo-1",
+      "action": "update",
+      "entityType": "link",
+      "entityId": "link-1",
+      "entityTitle": "Notion",
+      "details": "Link atualizado",
+      "timestamp": "2026-11-04T12:43:33.300Z"
+    },
+    {
+      "id": "log-1793796212110",
+      "userId": "user-demo-1",
+      "action": "update",
+      "entityType": "link",
+      "entityId": "link-1793796186435",
+      "entityTitle": "Youtube",
+      "details": "Link atualizado",
+      "timestamp": "2026-11-04T12:43:32.110Z"
+    },
+    {
+      "id": "log-1793796186435",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793796186435",
+      "entityTitle": "Youtube",
+      "details": "Link criado: https://www.youtube.com/watch?v=Xv78tbMrKCA",
+      "timestamp": "2026-11-04T12:43:06.435Z"
+    },
+    {
+      "id": "log-1793796165534",
+      "userId": "user-demo-1",
+      "action": "update",
+      "entityType": "link",
+      "entityId": "link-1",
+      "entityTitle": "Notion",
+      "details": "Link atualizado",
+      "timestamp": "2026-11-04T12:42:45.534Z"
+    },
+    {
+      "id": "log-1793676059695",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793676059695",
+      "entityTitle": "Vite Build Tool",
+      "details": "Link salvo via Extensão do Navegador",
+      "timestamp": "2026-11-03T03:20:59.695Z"
+    },
+    {
+      "id": "log-1793675753905",
+      "userId": "user-demo-1",
+      "action": "update",
+      "entityType": "link",
+      "entityId": "link-1",
+      "entityTitle": "Notion",
+      "details": "Link atualizado",
+      "timestamp": "2026-11-03T03:15:53.905Z"
+    },
+    {
+      "id": "log-1793674826006",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-1793674826006",
+      "entityTitle": "Sign in - Google Accounts",
+      "details": "Link criado: https://aistudio.google.com/u/2/apps/59e049c5-d8b7-4c65-a2c8-27b6d2ff3ac1?showPreview=true&showAssistant=true&fullscreenApplet=true",
+      "timestamp": "2026-11-03T03:00:26.006Z"
+    },
+    {
+      "id": "log-1",
+      "userId": "user-demo-1",
+      "action": "create",
+      "entityType": "link",
+      "entityId": "link-2",
+      "entityTitle": "Google AI Studio",
+      "details": "Link adicionado na categoria Inteligência Artificial",
+      "timestamp": "2026-10-27T02:58:33.688Z"
+    }
+  ],
+  "backups": [],
+  "subcategories": [
+    {
+      "id": "sub-1793667563236q3dz",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "name": "TESTE002",
+      "color": "#F59E0B",
+      "icon": "Tag",
+      "order": 1,
+      "createdAt": "2026-11-03T00:59:23.956Z",
+      "updatedAt": "2026-11-03T00:59:23.236Z"
+    },
+    {
+      "id": "sub-1793797540238iqhe",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "name": "TESTW03",
+      "color": "#2563EB",
+      "icon": "Star",
+      "order": 2,
+      "createdAt": "2026-11-04T13:05:41.145Z",
+      "updatedAt": "2026-11-04T13:05:40.239Z"
+    },
+    {
+      "id": "sub-prod-dev",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "name": "Desenvolvimento & IA",
+      "color": "#7C3AED",
+      "icon": "Code",
+      "order": 2,
+      "createdAt": "2026-10-26T02:58:33.688Z",
+      "updatedAt": "2026-11-02T02:58:33.688Z"
+    },
+    {
+      "id": "sub-prod-comms",
+      "userId": "user-demo-1",
+      "categoryId": "cat-1",
+      "name": "Comunicação & Chat",
+      "color": "#059669",
+      "icon": "MessageSquare",
+      "order": 3,
+      "createdAt": "2026-10-27T02:58:33.688Z",
+      "updatedAt": "2026-11-03T02:58:33.688Z"
+    },
+    {
+      "id": "sub-fin-bancos",
+      "userId": "user-demo-1",
+      "categoryId": "cat-2",
+      "name": "Bancos Digitais & Carteiras",
+      "color": "#059669",
+      "icon": "CreditCard",
+      "order": 1,
+      "createdAt": "2026-10-26T02:58:33.688Z",
+      "updatedAt": "2026-11-02T02:58:33.688Z"
+    },
+    {
+      "id": "sub-fin-fiscal",
+      "userId": "user-demo-1",
+      "categoryId": "cat-2",
+      "name": "Fiscal, Impostos & e-CAC",
+      "color": "#D97706",
+      "icon": "FileText",
+      "order": 2,
+      "createdAt": "2026-10-27T02:58:33.688Z",
+      "updatedAt": "2026-11-03T02:58:33.688Z"
+    }
+  ]
+}
