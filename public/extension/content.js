@@ -69,10 +69,19 @@
     }
 
     if (request.action === "EXECUTE_API") {
-      const { url, options, serverUrl } = request;
-      const isAppOrigin = window.location.hostname.includes("run.app") || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-      const baseOrigin = isAppOrigin ? window.location.origin : (serverUrl || window.location.origin);
-      const targetUrl = url.startsWith("http") ? url : `${baseOrigin.replace(/\/+$/, "")}${url}`;
+      const isAppOrigin =
+        window.location.hostname.includes("run.app") ||
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+
+      // Non-app frames (e.g. outer aistudio.google.com container) must ignore EXECUTE_API
+      // so the actual inner app iframe responds with same-origin credentials.
+      if (!isAppOrigin) {
+        return false;
+      }
+
+      const { url, options } = request;
+      const targetUrl = url.startsWith("http") ? url : `${window.location.origin}${url}`;
 
       fetch(targetUrl, {
         ...options,

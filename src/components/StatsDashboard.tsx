@@ -37,7 +37,7 @@ export const StatsDashboard: React.FC = () => {
 
   // Categories distribution for Pie/Bar
   const categoryData = categories.map((cat) => {
-    const count = links.filter((l) => l.categoryId === cat.id).length;
+    const count = links.filter((l) => l.categoryId === cat.id && !l.isShortcut).length;
     return {
       name: cat.name,
       value: count,
@@ -45,7 +45,7 @@ export const StatsDashboard: React.FC = () => {
     };
   });
 
-  const uncategorizedCount = links.filter((l) => !l.categoryId).length;
+  const uncategorizedCount = links.filter((l) => !l.categoryId && !l.isShortcut).length;
   if (uncategorizedCount > 0) {
     categoryData.push({
       name: "Sem categoria",

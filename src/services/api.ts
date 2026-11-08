@@ -361,16 +361,38 @@ export const api = {
     return res.json();
   },
 
+  async deleteBackup(id: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/backups/${id}`, {
+      method: "DELETE",
+      headers: { ...getAuthHeader() }
+    });
+    return res.json();
+  },
+
   // Import / Export
   async importData(payload: {
     importedData: any;
     importType: "json" | "bookmarks_list";
     targetCategoryId?: string;
-  }): Promise<{ success: boolean; importedLinksCount: number; importedCategoriesCount: number; importedNotesCount: number }> {
+    mode?: "merge" | "replace";
+  }): Promise<{
+    success: boolean;
+    importedLinksCount: number;
+    importedCategoriesCount: number;
+    importedSubcategoriesCount?: number;
+    importedNotesCount: number;
+  }> {
     const res = await fetch(`${API_BASE}/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify(payload)
+    });
+    return res.json();
+  },
+
+  async getExportData(): Promise<any> {
+    const res = await fetch(`${API_BASE}/export`, {
+      headers: { ...getAuthHeader() }
     });
     return res.json();
   },

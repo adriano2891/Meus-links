@@ -16,7 +16,7 @@ export const FocusModeView: React.FC = () => {
   if (!focusMode || !selectedCategoryId) return null;
 
   const currentCategory = categories.find((c) => c.id === selectedCategoryId);
-  const categoryLinks = links.filter((l) => l.categoryId === selectedCategoryId);
+  const categoryLinks = links.filter((l) => l.categoryId === selectedCategoryId && !l.isShortcut);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/95 text-slate-100 backdrop-blur-md overflow-y-auto p-4 sm:p-8">

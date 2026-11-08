@@ -245,7 +245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             ) : (
               categories.map((cat) => {
                 const isSelected = activeView === "category" && selectedCategoryId === cat.id;
-                const linkCount = links.filter((l) => l.categoryId === cat.id).length;
+                const linkCount = links.filter((l) => l.categoryId === cat.id && !l.isShortcut).length;
                 return (
                   <button
                     key={cat.id}

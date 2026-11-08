@@ -24,7 +24,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
     setCategoryToDelete
   } = useApp();
 
-  const catLinks = links.filter((l) => l.categoryId === category.id);
+  const catLinks = links.filter((l) => l.categoryId === category.id && !l.isShortcut);
   const catSubs = subcategories.filter((s) => s.categoryId === category.id);
   const hasCover = Boolean(category.coverImage);
 

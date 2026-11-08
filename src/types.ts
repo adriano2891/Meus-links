@@ -160,12 +160,14 @@ export interface BackupItem {
   stats: {
     links: number;
     categories: number;
+    subcategories?: number;
     collections: number;
     notes: number;
   };
   data: {
     links: LinkItem[];
     categories: CategoryItem[];
+    subcategories?: SubcategoryItem[];
     collections: CollectionItem[];
     notes: NoteItem[];
   };

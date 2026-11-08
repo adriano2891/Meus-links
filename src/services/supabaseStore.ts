@@ -9,19 +9,20 @@ export const supabaseClient = url && key ? createClient(url, key, { auth: { pers
 
 // Map DB row to LinkItem
 export function mapLinkFromSupabase(row: any) {
+  const isShortcut = !!row.is_shortcut;
   return {
     id: row.id,
     userId: row.user_id,
-    categoryId: row.category_id || undefined,
-    subcategoryId: row.subcategory_id || undefined,
-    collectionId: row.collection_id || undefined,
+    categoryId: isShortcut ? undefined : (row.category_id || undefined),
+    subcategoryId: isShortcut ? undefined : (row.subcategory_id || undefined),
+    collectionId: isShortcut ? undefined : (row.collection_id || undefined),
     title: row.title,
     url: row.url,
     description: row.description || "",
     tags: row.tags || [],
     favicon: row.favicon || undefined,
     previewImage: row.preview_image || undefined,
-    isShortcut: !!row.is_shortcut,
+    isShortcut,
     shortcutOrder: row.shortcut_order || 0,
     isFavorite: !!row.is_favorite,
     isReadLater: !!row.is_read_later,
@@ -39,12 +40,13 @@ export function mapLinkFromSupabase(row: any) {
 
 // Map LinkItem to Supabase row
 export function mapLinkToSupabase(item: any) {
+  const isShortcut = !!item.isShortcut;
   return {
     id: item.id,
     user_id: item.userId,
-    category_id: item.categoryId || null,
-    subcategory_id: item.subcategoryId || null,
-    collection_id: item.collectionId || null,
+    category_id: isShortcut ? null : (item.categoryId || null),
+    subcategory_id: isShortcut ? null : (item.subcategoryId || null),
+    collection_id: isShortcut ? null : (item.collectionId || null),
     title: item.title,
     url: item.url,
     description: item.description || null,

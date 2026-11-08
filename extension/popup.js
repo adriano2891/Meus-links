@@ -209,12 +209,39 @@ function showView(viewId) {
 // -------------------------------------------------------------
 // Universal App Tab Finder (Supports Run.app, AI Studio, Localhost)
 // -------------------------------------------------------------
+function isTabAppCandidate(tab) {
+  if (!tab || !tab.url) return false;
+  try {
+    const u = new URL(tab.url);
+    if (
+      u.hostname.includes("run.app") ||
+      u.hostname === "localhost" ||
+      u.hostname === "127.0.0.1" ||
+      u.hostname.includes("aistudio.google.com") ||
+      (tab.title &&
+        (tab.title.includes("Meus Links") ||
+          tab.title.includes("LinkVault") ||
+          tab.title.includes("Google AI Studio")))
+    ) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 async function findAppTab() {
   if (typeof chrome === "undefined" || !chrome.tabs || !chrome.tabs.query) return null;
   try {
-    const tabs = await chrome.tabs.query({});
-    // Priority 1: Exact cloud run or localhost app tab
-    for (const tab of tabs) {
+    // 1. Check current active tab first (very common: user has App open right now!)
+    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (activeTabs && activeTabs[0] && isTabAppCandidate(activeTabs[0])) {
+      return activeTabs[0];
+    }
+
+    // 2. Query all tabs across all windows
+    const allTabs = await chrome.tabs.query({});
+    // Prefer direct cloud run or localhost first
+    for (const tab of allTabs) {
       if (!tab.url) continue;
       try {
         const u = new URL(tab.url);
@@ -227,71 +254,142 @@ async function findAppTab() {
         }
       } catch {}
     }
-    // Priority 2: AI studio tab or title match
-    for (const tab of tabs) {
-      if (!tab.url) continue;
-      try {
-        const u = new URL(tab.url);
-        if (
-          u.hostname.includes("aistudio.google.com") ||
-          (tab.title && (tab.title.includes("Meus Links") || tab.title.includes("LinkVault") || tab.title.includes("Google AI Studio")))
-        ) {
-          return tab;
-        }
-      } catch {}
+
+    // Then check aistudio.google.com or title match
+    for (const tab of allTabs) {
+      if (isTabAppCandidate(tab)) {
+        return tab;
+      }
     }
-  } catch {}
+  } catch (err) {
+    console.warn("findAppTab error:", err);
+  }
+  return null;
+}
+
+// Executes an API request DIRECTLY inside the App's same-origin frame using chrome.scripting
+async function executeApiInTab(tabId, endpoint, options = {}) {
+  if (typeof chrome === "undefined" || !chrome.scripting || !chrome.scripting.executeScript) {
+    return null;
+  }
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tabId, allFrames: true },
+      func: async (endpoint, options) => {
+        const hostname = window.location.hostname;
+        const isAppFrame =
+          hostname.includes("run.app") ||
+          hostname === "localhost" ||
+          hostname === "127.0.0.1";
+
+        if (!isAppFrame) return null;
+
+        try {
+          const targetUrl = endpoint.startsWith("http")
+            ? endpoint
+            : `${window.location.origin}${endpoint}`;
+
+          const res = await fetch(targetUrl, {
+            ...options,
+            credentials: "include"
+          });
+
+          const contentType = res.headers.get("content-type") || "";
+          let data = null;
+          if (contentType.includes("application/json")) {
+            try {
+              data = await res.json();
+            } catch {
+              data = null;
+            }
+          }
+
+          // Trigger real-time UI updates inside the App
+          if (res.ok && endpoint.includes("quick-save") && data && data.link) {
+            try {
+              window.dispatchEvent(
+                new CustomEvent("meuslinks_external_save", { detail: { link: data.link } })
+              );
+              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: data.link }, "*");
+            } catch {}
+          }
+
+          return {
+            executed: true,
+            ok: res.ok,
+            status: res.status,
+            contentType,
+            data
+          };
+        } catch (fetchErr) {
+          return {
+            executed: true,
+            ok: false,
+            status: 0,
+            error: fetchErr.message || "Erro na conexão interna do App"
+          };
+        }
+      },
+      args: [endpoint, options]
+    });
+
+    if (Array.isArray(results)) {
+      for (const item of results) {
+        if (item && item.result && item.result.executed) {
+          return item.result;
+        }
+      }
+    }
+  } catch (scriptErr) {
+    console.warn("executeApiInTab error:", scriptErr);
+  }
+
   return null;
 }
 
 // -------------------------------------------------------------
-// Universal API Caller: Tab Bridge -> Direct Fetch -> Resilient Fallback
+// Universal API Caller: Dual-Layer In-Frame Execution -> Direct Fetch
 // -------------------------------------------------------------
 async function callAppApi(endpoint, options = {}) {
   const fullUrl = endpoint.startsWith("http") ? endpoint : `${appState.serverUrl}${endpoint}`;
   const headers = options.headers || {};
 
-  // 1. First attempt: Use Tab Bridge (Content script) if an app tab is open
+  // 1. First attempt: Direct execution in the App's same-origin frame via chrome.scripting
   const appTab = await findAppTab();
-  if (appTab && appTab.id && typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
-    try {
-      // Ensure content script is actively injected across all frames
-      if (typeof chrome.scripting !== "undefined" && chrome.scripting.executeScript) {
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: appTab.id, allFrames: true },
-            files: ["content.js"]
-          });
-        } catch {}
+  if (appTab && appTab.id) {
+    const frameResult = await executeApiInTab(appTab.id, endpoint, options);
+    if (frameResult && frameResult.executed) {
+      if (!frameResult.ok) {
+        const errMsg =
+          (frameResult.data && frameResult.data.error) ||
+          frameResult.error ||
+          `Erro no servidor do App (${frameResult.status})`;
+        throw new Error(errMsg);
       }
+      return frameResult.data;
+    }
 
-      const response = await new Promise((resolve) => {
-        const timeout = setTimeout(() => resolve(null), 4000);
-        chrome.tabs.sendMessage(
-          appTab.id,
-          { action: "EXECUTE_API", url: endpoint, serverUrl: appState.serverUrl, options },
-          (res) => {
-            clearTimeout(timeout);
-            if (chrome.runtime.lastError) {
-              resolve(null);
-            } else {
-              resolve(res);
+    // Fallback: If scripting didn't find the frame, try messaging content script
+    if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
+      try {
+        const msgRes = await new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(null), 3000);
+          chrome.tabs.sendMessage(
+            appTab.id,
+            { action: "EXECUTE_API", url: endpoint, options },
+            (res) => {
+              clearTimeout(timeout);
+              if (chrome.runtime.lastError) resolve(null);
+              else resolve(res);
             }
-          }
-        );
-      });
+          );
+        });
 
-      if (response && response.status !== undefined) {
-        if (!response.ok) {
-          const errMsg =
-            (response.data && response.data.error) ||
-            `Erro no servidor do App (${response.status})`;
-          throw new Error(errMsg);
+        if (msgRes && msgRes.ok && msgRes.data) {
+          return msgRes.data;
         }
-        return response.data;
-      }
-    } catch (e) {
-      console.warn("Tab bridge API fallback:", e);
+      } catch {}
     }
   }
 
@@ -307,11 +405,12 @@ async function callAppApi(endpoint, options = {}) {
       }
     });
   } catch (netErr) {
-    // If saving link and tab bridge was absent, give clear hint
     if (endpoint.includes("quick-save")) {
-      throw new Error("Não foi possível conectar ao servidor. Mantenha a aba do App Meus Links aberta no navegador.");
+      throw new Error(
+        "Não foi possível conectar ao servidor. Mantenha a aba do App Meus Links aberta no navegador."
+      );
     }
-    throw new Error("Não foi possível conectar ao servidor. Verifique a conexão.");
+    throw new Error("Não foi possível conectar ao servidor.");
   }
 
   const contentType = resp.headers.get("content-type") || "";
@@ -324,37 +423,23 @@ async function callAppApi(endpoint, options = {}) {
       data = null;
     }
   } else {
-    // Received HTML redirect (Cloud Run auth or cookie check)
+    // Cloud Run returned 302 or HTML preview check
     if (endpoint.includes("quick-save")) {
-      // Try auto-opening app tab in background and retrying via Tab Bridge
+      // Auto-open app in background and execute
       if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
         try {
           const newTab = await chrome.tabs.create({ url: appState.serverUrl, active: false });
-          await new Promise((r) => setTimeout(r, 2000));
-          if (chrome.scripting && chrome.scripting.executeScript) {
-            try {
-              await chrome.scripting.executeScript({
-                target: { tabId: newTab.id, allFrames: true },
-                files: ["content.js"]
-              });
-            } catch {}
-          }
-          const retryRes = await new Promise((resolve) => {
-            chrome.tabs.sendMessage(
-              newTab.id,
-              { action: "EXECUTE_API", url: endpoint, serverUrl: appState.serverUrl, options },
-              (res) => resolve(res)
-            );
-          });
+          await new Promise((r) => setTimeout(r, 2200));
+          const retryRes = await executeApiInTab(newTab.id, endpoint, options);
           if (retryRes && retryRes.ok && retryRes.data) {
             return retryRes.data;
           }
         } catch (retryErr) {
-          console.warn("Auto-tab retry failed:", retryErr);
+          console.warn("Auto-tab retry error:", retryErr);
         }
       }
       throw new Error(
-        "Para salvar com segurança na nuvem, mantenha a aba do Meus Links aberta no navegador."
+        "Por favor, mantenha a aba do App Meus Links aberta no navegador para salvar com segurança."
       );
     }
     throw new Error(`Resposta do servidor requer autenticação na nuvem.`);
@@ -387,16 +472,10 @@ async function detectAndSyncFromTabs(interactive = false) {
       return false;
     }
 
-    let session = await new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve(null), 2000);
-      chrome.tabs.sendMessage(appTab.id, { action: "PING_APP" }, (res) => {
-        clearTimeout(timeout);
-        if (chrome.runtime.lastError) resolve(null);
-        else resolve(res);
-      });
-    });
+    let session = null;
 
-    if (!session && chrome.scripting && chrome.scripting.executeScript) {
+    // Use chrome.scripting across all frames
+    if (chrome.scripting && chrome.scripting.executeScript) {
       try {
         const results = await chrome.scripting.executeScript({
           target: { tabId: appTab.id, allFrames: true },
@@ -404,6 +483,7 @@ async function detectAndSyncFromTabs(interactive = false) {
             try {
               const token = localStorage.getItem("meuslinks_token");
               const userRaw = localStorage.getItem("meuslinks_user");
+              if (!token) return null;
               return {
                 ok: true,
                 token,
@@ -415,10 +495,26 @@ async function detectAndSyncFromTabs(interactive = false) {
             }
           }
         });
-        if (results && results[0] && results[0].result) {
-          session = results[0].result;
+        if (Array.isArray(results)) {
+          for (const item of results) {
+            if (item && item.result && item.result.token) {
+              session = item.result;
+              break;
+            }
+          }
         }
       } catch {}
+    }
+
+    if (!session) {
+      session = await new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve(null), 2000);
+        chrome.tabs.sendMessage(appTab.id, { action: "PING_APP" }, (res) => {
+          clearTimeout(timeout);
+          if (chrome.runtime.lastError) resolve(null);
+          else resolve(res);
+        });
+      });
     }
 
     if (session && session.token) {

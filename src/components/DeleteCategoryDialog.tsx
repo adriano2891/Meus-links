@@ -18,7 +18,7 @@ export const DeleteCategoryDialog: React.FC = () => {
 
   if (!categoryToDelete) return null;
 
-  const linkedCount = links.filter((l) => l.categoryId === categoryToDelete.id).length;
+  const linkedCount = links.filter((l) => l.categoryId === categoryToDelete.id && !l.isShortcut).length;
   const otherCategories = categories.filter((c) => c.id !== categoryToDelete.id);
 
   const handleConfirm = async () => {

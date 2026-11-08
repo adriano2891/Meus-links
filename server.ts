@@ -195,8 +195,6 @@ const defaultDb: DatabaseSchema = {
     {
       id: "link-1",
       userId: "user-demo-1",
-      categoryId: "cat-1",
-      collectionId: "col-1",
       title: "Notion - O espaço de trabalho conectado",
       url: "https://www.notion.so",
       description: "Organize projetos, anotações e wikis de equipe com facilidade.",
@@ -217,8 +215,6 @@ const defaultDb: DatabaseSchema = {
     {
       id: "link-2",
       userId: "user-demo-1",
-      categoryId: "cat-3",
-      collectionId: "col-2",
       title: "Google AI Studio",
       url: "https://aistudio.google.com",
       description: "Ambiente de prototipagem rápida e desenvolvimento com modelos Gemini.",
@@ -239,8 +235,6 @@ const defaultDb: DatabaseSchema = {
     {
       id: "link-3",
       userId: "user-demo-1",
-      categoryId: "cat-3",
-      collectionId: "col-2",
       title: "Hugging Face - Hub de Modelos",
       url: "https://huggingface.co",
       description: "Comunidade e plataforma de modelos de machine learning e datasets abertos.",
@@ -616,8 +610,15 @@ app.get("/api/data", async (req, res) => {
     ? supabaseData.links
     : db.links.filter((l) => l.userId === user.id);
 
-  const userLinks = allUserLinks.filter((l) => !l.isArchived);
-  const userArchivedLinks = allUserLinks.filter((l) => l.isArchived);
+  const sanitizedUserLinks = allUserLinks.map((l: any) => {
+    if (l.isShortcut) {
+      return { ...l, categoryId: undefined, subcategoryId: undefined, collectionId: undefined };
+    }
+    return l;
+  });
+
+  const userLinks = sanitizedUserLinks.filter((l: any) => !l.isArchived);
+  const userArchivedLinks = sanitizedUserLinks.filter((l: any) => l.isArchived);
   const userNotes = db.notes.filter((n) => n.userId === user.id);
   const userTrash = db.trash.filter((t) => t.userId === user.id);
   const userLogs = db.auditLogs.filter((a) => a.userId === user.id);
@@ -661,12 +662,13 @@ app.post("/api/links", async (req, res) => {
   if (!user) return res.status(401).json({ error: "Não autenticado." });
   const db = readDb();
 
+  const isShortcut = !!req.body.isShortcut;
   const newLink = {
     id: "link-" + Date.now(),
     userId: user.id,
-    categoryId: req.body.categoryId || undefined,
-    subcategoryId: req.body.subcategoryId || undefined,
-    collectionId: req.body.collectionId || undefined,
+    categoryId: isShortcut ? undefined : (req.body.categoryId || undefined),
+    subcategoryId: isShortcut ? undefined : (req.body.subcategoryId || undefined),
+    collectionId: isShortcut ? undefined : (req.body.collectionId || undefined),
     title: deriveFallbackTitle(req.body.url, req.body.title),
     url: req.body.url,
     description: req.body.description || "",
@@ -675,8 +677,8 @@ app.post("/api/links", async (req, res) => {
     previewImage: req.body.previewImage || "",
     noteId: req.body.noteId || undefined,
     reviewDate: req.body.reviewDate || undefined,
-    isShortcut: !!req.body.isShortcut,
-    shortcutOrder: req.body.isShortcut ? (db.links.filter((l) => l.userId === user.id && l.isShortcut).length + 1) : undefined,
+    isShortcut,
+    shortcutOrder: isShortcut ? (db.links.filter((l) => l.userId === user.id && l.isShortcut).length + 1) : undefined,
     isFavorite: !!req.body.isFavorite,
     isReadLater: !!req.body.isReadLater,
     isArchived: !!req.body.isArchived,
@@ -726,10 +728,16 @@ app.put("/api/links/:id", async (req, res) => {
     ? deriveFallbackTitle(req.body.url || existing.url, req.body.title)
     : existing.title;
 
+  const isShortcut = req.body.isShortcut !== undefined ? !!req.body.isShortcut : !!existing.isShortcut;
+
   const updated = {
     ...existing,
     ...req.body,
     title: finalTitle,
+    isShortcut,
+    categoryId: isShortcut ? undefined : (req.body.categoryId !== undefined ? (req.body.categoryId || undefined) : existing.categoryId),
+    subcategoryId: isShortcut ? undefined : (req.body.subcategoryId !== undefined ? (req.body.subcategoryId || undefined) : existing.subcategoryId),
+    collectionId: isShortcut ? undefined : (req.body.collectionId !== undefined ? (req.body.collectionId || undefined) : existing.collectionId),
     userId: user.id,
     updatedAt: new Date().toISOString()
   };
@@ -1673,6 +1681,7 @@ app.post("/api/backups", (req, res) => {
 
   const userLinks = db.links.filter((l) => l.userId === user.id);
   const userCategories = db.categories.filter((c) => c.userId === user.id);
+  const userSubcategories = (db.subcategories || []).filter((s: any) => s.userId === user.id);
   const userCollections = db.collections.filter((c) => c.userId === user.id);
   const userNotes = db.notes.filter((n) => n.userId === user.id);
 
@@ -1684,12 +1693,14 @@ app.post("/api/backups", (req, res) => {
     stats: {
       links: userLinks.length,
       categories: userCategories.length,
+      subcategories: userSubcategories.length,
       collections: userCollections.length,
       notes: userNotes.length
     },
     data: {
       links: userLinks,
       categories: userCategories,
+      subcategories: userSubcategories,
       collections: userCollections,
       notes: userNotes
     }
@@ -1707,9 +1718,10 @@ app.post("/api/backups/:id/restore", (req, res) => {
   const backup = db.backups.find((b) => b.id === req.params.id && b.userId === user.id);
   if (!backup) return res.status(404).json({ error: "Backup não encontrado." });
 
-  // Remove existing user items and replace with backup items
+  // Remove existing user items and replace with backup items (including subcategories)
   db.links = db.links.filter((l) => l.userId !== user.id).concat(backup.data.links || []);
   db.categories = db.categories.filter((c) => c.userId !== user.id).concat(backup.data.categories || []);
+  db.subcategories = (db.subcategories || []).filter((s: any) => s.userId !== user.id).concat(backup.data.subcategories || []);
   db.collections = db.collections.filter((c) => c.userId !== user.id).concat(backup.data.collections || []);
   db.notes = db.notes.filter((n) => n.userId !== user.id).concat(backup.data.notes || []);
 
@@ -1720,12 +1732,25 @@ app.post("/api/backups/:id/restore", (req, res) => {
     entityType: "settings",
     entityId: backup.id,
     entityTitle: `Restauração de Backup (${backup.createdAt})`,
-    details: `Restaurados ${backup.stats.links} links e ${backup.stats.notes} notas`,
+    details: `Restaurados ${backup.stats?.links || 0} links, ${backup.stats?.categories || 0} categorias e ${backup.stats?.subcategories || 0} subcategorias`,
     timestamp: new Date().toISOString()
   });
 
   writeDb(db);
   res.json({ success: true, message: "Backup restaurado com sucesso!" });
+});
+
+app.delete("/api/backups/:id", (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: "Não autenticado." });
+  const db = readDb();
+  const initialLength = db.backups.length;
+  db.backups = db.backups.filter((b) => !(b.id === req.params.id && b.userId === user.id));
+  if (db.backups.length === initialLength) {
+    return res.status(404).json({ error: "Backup não encontrado." });
+  }
+  writeDb(db);
+  res.json({ success: true, message: "Backup excluído com sucesso." });
 });
 
 // Import & Export API
@@ -1742,6 +1767,7 @@ app.get("/api/export", (req, res) => {
     data: {
       collections: db.collections.filter((c) => c.userId === user.id),
       categories: db.categories.filter((c) => c.userId === user.id),
+      subcategories: (db.subcategories || []).filter((s: any) => s.userId === user.id),
       links: db.links.filter((l) => l.userId === user.id),
       notes: db.notes.filter((n) => n.userId === user.id)
     }
@@ -1756,63 +1782,127 @@ app.get("/api/export", (req, res) => {
 app.post("/api/import", (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: "Não autenticado." });
-  const { importedData, importType, targetCategoryId } = req.body;
+  const { importedData, importType, targetCategoryId, mode } = req.body;
   const db = readDb();
 
   let importedLinksCount = 0;
   let importedCategoriesCount = 0;
+  let importedSubcategoriesCount = 0;
   let importedNotesCount = 0;
 
-  if (importType === "json" && importedData?.data) {
-    const { links = [], categories = [], collections = [], notes = [] } = importedData.data;
+  // Mode "replace": wipe existing user data before loading
+  if (mode === "replace") {
+    db.links = db.links.filter((l) => l.userId !== user.id);
+    db.categories = db.categories.filter((c) => c.userId !== user.id);
+    db.subcategories = (db.subcategories || []).filter((s: any) => s.userId !== user.id);
+    db.collections = db.collections.filter((c) => c.userId !== user.id);
+    db.notes = db.notes.filter((n) => n.userId !== user.id);
+  }
 
-    // Deduplicate against existing links by URL
-    const existingUrls = new Set(db.links.filter((l) => l.userId === user.id).map((l) => l.url.toLowerCase()));
+  // 1. JSON Import
+  if (importType === "json") {
+    const rawData = importedData?.data || importedData || {};
+    const {
+      links = [],
+      categories = [],
+      subcategories = [],
+      collections = [],
+      notes = []
+    } = rawData;
 
+    const existingUrls = new Set(
+      db.links.filter((l) => l.userId === user.id).map((l) => l.url.toLowerCase())
+    );
+
+    // Import Collections
+    collections.forEach((col: any) => {
+      const exists = db.collections.some(
+        (c) => c.userId === user.id && c.name.toLowerCase() === col.name.toLowerCase()
+      );
+      if (!exists) {
+        db.collections.push({
+          ...col,
+          id: col.id || "col-" + Date.now() + Math.random().toString(36).substring(2, 6),
+          userId: user.id
+        });
+      }
+    });
+
+    // Import Categories
     categories.forEach((cat: any) => {
-      const exists = db.categories.some((c) => c.userId === user.id && c.name.toLowerCase() === cat.name.toLowerCase());
+      const exists = db.categories.some(
+        (c) => c.userId === user.id && (c.id === cat.id || c.name.toLowerCase() === cat.name.toLowerCase())
+      );
       if (!exists) {
         db.categories.push({
           ...cat,
-          id: "cat-" + Date.now() + Math.random().toString(36).substring(2, 6),
+          id: cat.id || "cat-" + Date.now() + Math.random().toString(36).substring(2, 6),
           userId: user.id
         });
         importedCategoriesCount++;
       }
     });
 
+    // Import Subcategories
+    if (!Array.isArray(db.subcategories)) db.subcategories = [];
+    subcategories.forEach((sub: any) => {
+      const exists = db.subcategories.some(
+        (s: any) => s.userId === user.id && s.id === sub.id
+      );
+      if (!exists) {
+        db.subcategories.push({
+          ...sub,
+          id: sub.id || "sub-" + Date.now() + Math.random().toString(36).substring(2, 6),
+          userId: user.id
+        });
+        importedSubcategoriesCount++;
+      }
+    });
+
+    // Import Links
     links.forEach((link: any) => {
-      if (link.url && !existingUrls.has(link.url.toLowerCase())) {
+      if (link.url && (mode === "replace" || !existingUrls.has(link.url.toLowerCase()))) {
         db.links.push({
           ...link,
-          id: "link-" + Date.now() + Math.random().toString(36).substring(2, 6),
+          id: link.id || "link-" + Date.now() + Math.random().toString(36).substring(2, 6),
           userId: user.id,
-          createdAt: new Date().toISOString()
+          createdAt: link.createdAt || new Date().toISOString()
         });
         existingUrls.add(link.url.toLowerCase());
         importedLinksCount++;
       }
     });
 
+    // Import Notes
     notes.forEach((note: any) => {
       db.notes.push({
         ...note,
-        id: "note-" + Date.now() + Math.random().toString(36).substring(2, 6),
+        id: note.id || "note-" + Date.now() + Math.random().toString(36).substring(2, 6),
         userId: user.id
       });
       importedNotesCount++;
     });
-  } else if (importType === "bookmarks_list" && Array.isArray(importedData)) {
-    // Array of { title, url, folder } from HTML bookmarks parser
-    const existingUrls = new Set(db.links.filter((l) => l.userId === user.id).map((l) => l.url.toLowerCase()));
+  } else if (importType === "bookmarks_list") {
+    // 2. Bookmarks List from Browser HTML Export
+    const itemsToImport = Array.isArray(importedData)
+      ? importedData
+      : Array.isArray(importedData?.links)
+      ? importedData.links
+      : [];
+
+    const existingUrls = new Set(
+      db.links.filter((l) => l.userId === user.id).map((l) => l.url.toLowerCase())
+    );
     const categoryMap = new Map<string, string>();
 
     // Index existing categories
-    db.categories.filter((c) => c.userId === user.id).forEach((c) => {
-      categoryMap.set(c.name.toLowerCase(), c.id);
-    });
+    db.categories
+      .filter((c) => c.userId === user.id)
+      .forEach((c) => {
+        categoryMap.set(c.name.toLowerCase(), c.id);
+      });
 
-    importedData.forEach((item: any) => {
+    itemsToImport.forEach((item: any) => {
       if (!item.url || existingUrls.has(item.url.toLowerCase())) return;
 
       let catId = targetCategoryId;
@@ -1865,6 +1955,7 @@ app.post("/api/import", (req, res) => {
     success: true,
     importedLinksCount,
     importedCategoriesCount,
+    importedSubcategoriesCount,
     importedNotesCount
   });
 });

@@ -33,7 +33,7 @@ export const CollectionCard: React.FC<CollectionCardProps> = ({ collection }) =>
 
   const colCategories = categories.filter((c) => c.collectionId === collection.id);
   const catIds = colCategories.map((c) => c.id);
-  const colLinks = links.filter((l) => catIds.includes(l.categoryId || ""));
+  const colLinks = links.filter((l) => catIds.includes(l.categoryId || "") && !l.isShortcut);
 
   const handleOpen = () => {
     setSelectedCollectionId(collection.id);

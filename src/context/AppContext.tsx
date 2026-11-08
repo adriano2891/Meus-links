@@ -568,11 +568,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const toggleShortcutLink = async (link: LinkItem) => {
     const nextVal = !link.isShortcut;
-    setLinks((prev) => prev.map((l) => (l.id === link.id ? { ...l, isShortcut: nextVal } : l)));
-    await api.updateLink(link.id, { isShortcut: nextVal });
+    setLinks((prev) =>
+      prev.map((l) =>
+        l.id === link.id
+          ? {
+              ...l,
+              isShortcut: nextVal,
+              categoryId: nextVal ? undefined : l.categoryId,
+              subcategoryId: nextVal ? undefined : l.subcategoryId
+            }
+          : l
+      )
+    );
+    await api.updateLink(link.id, {
+      isShortcut: nextVal,
+      categoryId: nextVal ? undefined : link.categoryId,
+      subcategoryId: nextVal ? undefined : link.subcategoryId
+    });
     addToast({
       type: "info",
-      title: nextVal ? "Fixado na barra superior" : "Removido dos atalhos",
+      title: nextVal ? "Fixado na barra superior (Link Rápido)" : "Removido dos atalhos",
       message: link.title
     });
   };

@@ -354,7 +354,7 @@ const MainContent: React.FC = () => {
     // Selected Category View
     if (activeView === "category" && selectedCategoryId) {
       const cat = categories.find((c) => c.id === selectedCategoryId);
-      const catLinks = processedLinks.filter((l) => l.categoryId === selectedCategoryId);
+      const catLinks = processedLinks.filter((l) => l.categoryId === selectedCategoryId && !l.isShortcut);
       const catSubcategories = subcategories.filter((s) => s.categoryId === selectedCategoryId);
 
       // Subcategories lookup map for fast subcategory name matching
@@ -736,7 +736,7 @@ const MainContent: React.FC = () => {
       const col = collections.find((c) => c.id === selectedCollectionId);
       const colCats = categories.filter((c) => c.collectionId === selectedCollectionId);
       const catIds = colCats.map((c) => c.id);
-      const colLinks = processedLinks.filter((l) => catIds.includes(l.categoryId || ""));
+      const colLinks = processedLinks.filter((l) => catIds.includes(l.categoryId || "") && !l.isShortcut);
 
       return (
         <div className="space-y-4">

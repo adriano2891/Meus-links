@@ -88,14 +88,15 @@ export const AddEditLinkModal: React.FC = () => {
       setUrl(editingLink.url);
       setTitle(editingLink.title);
       setDescription(editingLink.description || "");
-      setCategoryId(editingLink.categoryId || "");
-      setSubcategoryId(editingLink.subcategoryId || "");
+      const isShort = !!editingLink.isShortcut;
+      setIsShortcut(isShort);
+      setCategoryId(isShort ? "" : (editingLink.categoryId || ""));
+      setSubcategoryId(isShort ? "" : (editingLink.subcategoryId || ""));
       setTags(editingLink.tags || []);
       setPreviewImage(editingLink.previewImage || "");
       setFavicon(editingLink.favicon || "");
       setIsFavorite(!!editingLink.isFavorite);
       setIsReadLater(!!editingLink.isReadLater);
-      setIsShortcut(!!editingLink.isShortcut);
       setIsPrivate(!!editingLink.isPrivate);
       setPassword(editingLink.password || "");
       setReviewDate(editingLink.reviewDate ? editingLink.reviewDate.split("T")[0] : "");
@@ -104,16 +105,22 @@ export const AddEditLinkModal: React.FC = () => {
       setUrl("");
       setTitle("");
       setDescription("");
-      const targetSub = subcategories.find((s) => s.id === preselectedSubcategoryId);
-      const targetCatId = targetSub?.categoryId || selectedCategoryId || (categories[0]?.id ?? "");
-      setCategoryId(targetCatId);
-      setSubcategoryId(preselectedSubcategoryId || "");
+      const isShort = !!preselectedIsShortcut;
+      setIsShortcut(isShort);
+      if (isShort) {
+        setCategoryId("");
+        setSubcategoryId("");
+      } else {
+        const targetSub = subcategories.find((s) => s.id === preselectedSubcategoryId);
+        const targetCatId = targetSub?.categoryId || selectedCategoryId || (categories[0]?.id ?? "");
+        setCategoryId(targetCatId);
+        setSubcategoryId(preselectedSubcategoryId || "");
+      }
       setTags([]);
       setPreviewImage("");
       setFavicon("");
       setIsFavorite(false);
       setIsReadLater(false);
-      setIsShortcut(!!preselectedIsShortcut);
       setIsPrivate(false);
       setPassword("");
       setReviewDate("");
@@ -183,8 +190,8 @@ export const AddEditLinkModal: React.FC = () => {
         setTags(merged);
       }
 
-      // Match category name if suggested
-      if (result.suggestedCategory) {
+      // Match category name if suggested (only if not a shortcut)
+      if (!isShortcut && result.suggestedCategory) {
         const matched = categories.find(
           (c) => c.name.toLowerCase() === result.suggestedCategory?.toLowerCase()
         );
@@ -207,6 +214,19 @@ export const AddEditLinkModal: React.FC = () => {
       });
     } finally {
       setIsAiSuggesting(false);
+    }
+  };
+
+  const handleToggleShortcut = (checked: boolean) => {
+    setIsShortcut(checked);
+    if (checked) {
+      setCategoryId("");
+      setSubcategoryId("");
+    } else {
+      if (!categoryId) {
+        const targetSub = subcategories.find((s) => s.id === preselectedSubcategoryId);
+        setCategoryId(targetSub?.categoryId || selectedCategoryId || (categories[0]?.id ?? ""));
+      }
     }
   };
 
@@ -239,8 +259,8 @@ export const AddEditLinkModal: React.FC = () => {
         url: url.trim(),
         title: resolvedTitle,
         description: description.trim() || undefined,
-        categoryId: categoryId || undefined,
-        subcategoryId: subcategoryId || undefined,
+        categoryId: isShortcut ? undefined : (categoryId || undefined),
+        subcategoryId: isShortcut ? undefined : (subcategoryId || undefined),
         tags,
         previewImage: previewImage.trim() || undefined,
         favicon: favicon.trim() || undefined,
@@ -287,9 +307,13 @@ export const AddEditLinkModal: React.FC = () => {
             </div>
             <div>
               <h3 className="font-bold text-base text-slate-900 dark:text-white">
-                {editingLink ? "Editar Link" : "Adicionar Novo Link"}
+                {editingLink
+                  ? (isShortcut ? "Editar Link Rápido" : "Editar Link")
+                  : (isShortcut ? "Novo Link Rápido (Cabeçalho)" : "Adicionar Novo Link")}
               </h3>
-              <p className="text-xs text-slate-400">Armazenamento sincronizado na nuvem</p>
+              <p className="text-xs text-slate-400">
+                {isShortcut ? "Atalho fixo na barra superior de links rápidos" : "Armazenamento sincronizado na nuvem"}
+              </p>
             </div>
           </div>
 
@@ -303,8 +327,8 @@ export const AddEditLinkModal: React.FC = () => {
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
-          {/* Subcategory Indicator Banner if selected */}
-          {subcategoryId && (() => {
+          {/* Subcategory Indicator Banner if selected (only for normal category links) */}
+          {!isShortcut && subcategoryId && (() => {
             const currentSub = subcategories.find((s) => s.id === subcategoryId);
             if (!currentSub) return null;
             return (
@@ -407,57 +431,74 @@ export const AddEditLinkModal: React.FC = () => {
             )}
           </div>
 
-          {/* Category & Scheduled Review Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Categoria
-              </label>
-              <select
-                value={categoryId}
-                onChange={(e) => {
-                  setCategoryId(e.target.value);
-                  setSubcategoryId("");
-                }}
-                className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
-              >
-                <option value="">Sem categoria (Geral)</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+          {/* Category & Subcategory / Shortcut Notice */}
+          {isShortcut ? (
+            <div className="p-3.5 bg-blue-50/80 dark:bg-blue-950/40 rounded-2xl border border-blue-200/80 dark:border-blue-800/60 flex items-start gap-3">
+              <div className="p-2 bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-xl shrink-0 mt-0.5">
+                <Bookmark className="w-4 h-4 fill-blue-500 text-blue-500" />
+              </div>
+              <div className="text-xs space-y-1">
+                <p className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                  <span>Exclusivo da Barra de Links Rápidos</span>
+                  <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md font-semibold">Cabeçalho</span>
+                </p>
+                <p className="text-blue-700/90 dark:text-blue-300/80 text-[11px] leading-relaxed">
+                  Este link será exibido exclusivamente na barra superior de links rápidos do cabeçalho. Ele não será incluído em nenhuma categoria nem subcategoria.
+                </p>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Subcategoria (Opcional)
-              </label>
-              {(() => {
-                const categorySubs = subcategories.filter((s) => s.categoryId === categoryId);
-                return (
-                  <select
-                    value={subcategoryId}
-                    onChange={(e) => setSubcategoryId(e.target.value)}
-                    disabled={!categoryId || categorySubs.length === 0}
-                    className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500 disabled:opacity-50"
-                  >
-                    <option value="">
-                      {categorySubs.length === 0
-                        ? "Nenhuma subcategoria disponível"
-                        : "Geral (Sem subcategoria)"}
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Categoria
+                </label>
+                <select
+                  value={categoryId}
+                  onChange={(e) => {
+                    setCategoryId(e.target.value);
+                    setSubcategoryId("");
+                  }}
+                  className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
+                >
+                  <option value="">Sem categoria (Geral)</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
                     </option>
-                    {categorySubs.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.name}
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Subcategoria (Opcional)
+                </label>
+                {(() => {
+                  const categorySubs = subcategories.filter((s) => s.categoryId === categoryId);
+                  return (
+                    <select
+                      value={subcategoryId}
+                      onChange={(e) => setSubcategoryId(e.target.value)}
+                      disabled={!categoryId || categorySubs.length === 0}
+                      className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500 disabled:opacity-50"
+                    >
+                      <option value="">
+                        {categorySubs.length === 0
+                          ? "Nenhuma subcategoria disponível"
+                          : "Geral (Sem subcategoria)"}
                       </option>
-                    ))}
-                  </select>
-                );
-              })()}
+                      {categorySubs.map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.name}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Favicon URL */}
           <div>
@@ -495,7 +536,7 @@ export const AddEditLinkModal: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={isShortcut}
-                    onChange={(e) => setIsShortcut(e.target.checked)}
+                    onChange={(e) => handleToggleShortcut(e.target.checked)}
                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                   />
                   <Bookmark className={`w-3.5 h-3.5 ${isShortcut ? "text-blue-500 fill-blue-500" : "text-slate-400"}`} />
