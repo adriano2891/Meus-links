@@ -146,6 +146,9 @@ interface AppContextType {
   categoryToDelete: CategoryItem | null;
   setCategoryToDelete: (cat: CategoryItem | null) => void;
 
+  subcategoryToDelete: SubcategoryItem | null;
+  setSubcategoryToDelete: (sub: SubcategoryItem | null) => void;
+
   // Selected links for bulk actions
   selectedLinkIds: string[];
   toggleSelectLink: (id: string) => void;
@@ -170,6 +173,7 @@ interface AppContextType {
   createSubcategory: (sub: { categoryId: string; name: string; url: string }) => Promise<SubcategoryItem>;
   updateSubcategory: (id: string, sub: Partial<SubcategoryItem>) => Promise<SubcategoryItem>;
   deleteSubcategory: (id: string) => Promise<void>;
+  deleteSubcategoryWithChoice: (id: string, action?: "keep_in_category" | "delete_links") => Promise<void>;
 
   createCollection: (col: Partial<CollectionItem>) => Promise<CollectionItem>;
   updateCollection: (id: string, col: Partial<CollectionItem>) => Promise<CollectionItem>;
@@ -274,6 +278,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [qrModalData, setQrModalData] = useState<{ title: string; url: string } | null>(null);
 
   const [categoryToDelete, setCategoryToDelete] = useState<CategoryItem | null>(null);
+  const [subcategoryToDelete, setSubcategoryToDelete] = useState<SubcategoryItem | null>(null);
   const [isCheckingLinks, setIsCheckingLinks] = useState(false);
 
   // Toasts
@@ -663,15 +668,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return updated;
   };
 
-  const deleteSubcategory = async (id: string) => {
+  const deleteSubcategoryWithChoice = async (
+    id: string,
+    action: "keep_in_category" | "delete_links" = "keep_in_category"
+  ) => {
     const target = subcategories.find((s) => s.id === id);
+    if (!target) return;
+
+    if (action === "delete_links") {
+      const linksToDelete = links.filter((l) => l.subcategoryId === id);
+      for (const link of linksToDelete) {
+        await api.deleteLink(link.id);
+      }
+      setLinks((prev) => prev.filter((l) => l.subcategoryId !== id));
+    } else {
+      setLinks((prev) =>
+        prev.map((l) => (l.subcategoryId === id ? { ...l, subcategoryId: undefined } : l))
+      );
+    }
+
     setSubcategories((prev) => prev.filter((s) => s.id !== id));
     await api.deleteSubcategory(id);
+    setSubcategoryToDelete(null);
+
     addToast({
       type: "info",
       title: "Subcategoria excluída",
-      message: target ? target.name : undefined
+      message: `"${target.name}" foi removida com sucesso.`
     });
+  };
+
+  const deleteSubcategory = async (id: string) => {
+    return deleteSubcategoryWithChoice(id, "keep_in_category");
   };
 
   // Collections Handlers
@@ -917,6 +945,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAuthModalOpen,
         categoryToDelete,
         setCategoryToDelete,
+        subcategoryToDelete,
+        setSubcategoryToDelete,
         selectedLinkIds,
         toggleSelectLink,
         selectAllLinks,
@@ -936,6 +966,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createSubcategory,
         updateSubcategory,
         deleteSubcategory,
+        deleteSubcategoryWithChoice,
         createCollection,
         updateCollection,
         deleteCollection,

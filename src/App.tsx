@@ -13,6 +13,7 @@ import { AddEditSubcategoryModal, SUBCATEGORY_ICONS } from "./components/AddEdit
 import { renderCategoryIcon } from "./constants/icons";
 import { AddEditCollectionModal } from "./components/AddEditCollectionModal";
 import { DeleteCategoryDialog } from "./components/DeleteCategoryDialog";
+import { DeleteSubcategoryDialog } from "./components/DeleteSubcategoryDialog";
 import { ShareModal } from "./components/ShareModal";
 import { QrCodeModal } from "./components/QrCodeModal";
 import { HomeBlocksCustomizer } from "./components/HomeBlocksCustomizer";
@@ -80,6 +81,7 @@ const MainContent: React.FC = () => {
     setEditingSubcategory,
     setSubcategoryCategoryId,
     deleteSubcategory,
+    setSubcategoryToDelete,
     openAddLinkForSubcategory,
     addToast,
     setIsHomeCustomizerOpen,
@@ -651,23 +653,7 @@ const MainContent: React.FC = () => {
                                 </button>
 
                                 <button
-                                  onClick={() => {
-                                    if (subLinks.length > 0) {
-                                      const confirmWithLinks = window.confirm(
-                                        `A subcategoria "${sub.name}" possui ${subLinks.length} link(s) associado(s).\n\nSe prosseguir, a subcategoria será removida e os links serão preservados na categoria principal.\n\nDeseja continuar?`
-                                      );
-                                      if (!confirmWithLinks) return;
-                                    } else {
-                                      const confirmDelete = window.confirm(`Excluir a subcategoria "${sub.name}"?`);
-                                      if (!confirmDelete) return;
-                                    }
-                                    deleteSubcategory(sub.id);
-                                    addToast({
-                                      type: "info",
-                                      title: "Subcategoria excluída",
-                                      message: `"${sub.name}" foi removida com sucesso.`
-                                    });
-                                  }}
+                                  onClick={() => setSubcategoryToDelete(sub)}
                                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 text-xs font-semibold transition-colors cursor-pointer"
                                   title="Excluir subcategoria"
                                 >
@@ -985,6 +971,7 @@ const MainContent: React.FC = () => {
       <AddEditSubcategoryModal />
       <AddEditCollectionModal />
       <DeleteCategoryDialog />
+      <DeleteSubcategoryDialog />
       <ShareModal />
       <QrCodeModal />
       <HomeBlocksCustomizer />

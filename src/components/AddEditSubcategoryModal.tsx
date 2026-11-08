@@ -3,7 +3,8 @@ import { useApp } from "../context/AppContext";
 import {
   X,
   FolderPlus,
-  Check
+  Check,
+  Trash2
 } from "lucide-react";
 import { motion } from "motion/react";
 import { SUBCATEGORY_ICONS } from "../constants/icons";
@@ -33,6 +34,7 @@ export const AddEditSubcategoryModal: React.FC = () => {
     setSubcategoryCategoryId,
     createSubcategory,
     updateSubcategory,
+    setSubcategoryToDelete,
     categories
   } = useApp();
 
@@ -245,26 +247,46 @@ export const AddEditSubcategoryModal: React.FC = () => {
           </div>
 
           {/* Footer Actions */}
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setIsAddSubcategoryOpen(false);
-                setEditingSubcategory(null);
-                setSubcategoryCategoryId(null);
-              }}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !name.trim()}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <Check className="w-4 h-4" />
-              <span>{isSubmitting ? "Salvando..." : editingSubcategory ? "Atualizar" : "Salvar Subcategoria"}</span>
-            </button>
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+            {editingSubcategory ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = editingSubcategory;
+                  setIsAddSubcategoryOpen(false);
+                  setEditingSubcategory(null);
+                  setSubcategoryCategoryId(null);
+                  setSubcategoryToDelete(target);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
+                title="Excluir esta subcategoria"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Excluir</span>
+              </button>
+            ) : <div />}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddSubcategoryOpen(false);
+                  setEditingSubcategory(null);
+                  setSubcategoryCategoryId(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || !name.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>{isSubmitting ? "Salvando..." : editingSubcategory ? "Atualizar" : "Salvar Subcategoria"}</span>
+              </button>
+            </div>
           </div>
         </form>
       </motion.div>
