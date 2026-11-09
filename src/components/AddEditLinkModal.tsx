@@ -279,8 +279,13 @@ export const AddEditLinkModal: React.FC = () => {
       }
 
       handleClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Submit link error:", err);
+      addToast({
+        type: "error",
+        title: "Erro ao salvar link",
+        message: err.message || "Não foi possível conectar ao servidor. Verifique sua conexão de rede ou Supabase."
+      });
     } finally {
       setIsSubmitting(false);
     }

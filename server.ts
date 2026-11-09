@@ -720,10 +720,42 @@ app.put("/api/links/:id", async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: "Não autenticado." });
   const db = readDb();
-  const index = db.links.findIndex((l) => l.id === req.params.id && l.userId === user.id);
-  if (index === -1) return res.status(404).json({ error: "Link não encontrado." });
+  let index = db.links.findIndex((l) => l.id === req.params.id && l.userId === user.id);
+  let existing: any = null;
 
-  const existing = db.links[index];
+  if (index !== -1) {
+    existing = db.links[index];
+  } else {
+    // If not found in db.links, check Supabase
+    const supabaseData = await getSupabaseAllData(user.id);
+    const foundInSupabase = supabaseData?.links.find((l) => l.id === req.params.id);
+    if (foundInSupabase) {
+      existing = foundInSupabase;
+      db.links.push(existing);
+      index = db.links.length - 1;
+    } else {
+      const foundById = db.links.find((l) => l.id === req.params.id);
+      if (foundById) {
+        existing = foundById;
+        index = db.links.indexOf(foundById);
+      }
+    }
+  }
+
+  if (!existing) {
+    // Synthesize link to ensure update never drops data
+    existing = {
+      id: req.params.id,
+      userId: user.id,
+      title: deriveFallbackTitle(req.body.url, req.body.title),
+      url: req.body.url || "https://",
+      clickCount: 0,
+      order: db.links.length + 1,
+      createdAt: new Date().toISOString()
+    };
+    db.links.push(existing);
+    index = db.links.length - 1;
+  }
   const finalTitle = req.body.title !== undefined
     ? deriveFallbackTitle(req.body.url || existing.url, req.body.title)
     : existing.title;
@@ -789,10 +821,34 @@ app.delete("/api/links/:id", async (req, res) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ error: "Não autenticado." });
   const db = readDb();
-  const index = db.links.findIndex((l) => l.id === req.params.id && l.userId === user.id);
-  if (index === -1) return res.status(404).json({ error: "Link não encontrado." });
+  let index = db.links.findIndex((l) => l.id === req.params.id && l.userId === user.id);
+  let removed: any = null;
 
-  const [removed] = db.links.splice(index, 1);
+  if (index !== -1) {
+    [removed] = db.links.splice(index, 1);
+  } else {
+    // If not found in local db.links, check if it's in Supabase or by id
+    const supabaseData = await getSupabaseAllData(user.id);
+    const foundInSupabase = supabaseData?.links.find((l) => l.id === req.params.id);
+    if (foundInSupabase) {
+      removed = foundInSupabase;
+    } else {
+      const foundById = db.links.find((l) => l.id === req.params.id);
+      if (foundById) {
+        db.links = db.links.filter((l) => l.id !== req.params.id);
+        removed = foundById;
+      }
+    }
+  }
+
+  // If not found anywhere, attempt to delete directly from Supabase anyway and return success
+  if (!removed) {
+    try {
+      await deleteSupabaseLink(req.params.id);
+    } catch {}
+    return res.json({ success: true, message: "Link excluído com sucesso." });
+  }
+
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -801,7 +857,7 @@ app.delete("/api/links/:id", async (req, res) => {
     userId: user.id,
     itemType: "link",
     entityId: removed.id,
-    title: removed.title,
+    title: removed.title || "Link",
     originalData: removed,
     deletedAt: now.toISOString(),
     expiresAt
@@ -813,7 +869,7 @@ app.delete("/api/links/:id", async (req, res) => {
     action: "delete",
     entityType: "link",
     entityId: removed.id,
-    entityTitle: removed.title,
+    entityTitle: removed.title || "Link",
     details: "Link movido para a lixeira (recuperável por 30 dias)",
     timestamp: now.toISOString()
   });

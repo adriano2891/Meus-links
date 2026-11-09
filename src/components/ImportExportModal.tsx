@@ -18,7 +18,13 @@ import {
   Check,
   FolderPlus,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Cloud,
+  Server,
+  Settings,
+  Key,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -62,6 +68,39 @@ export const ImportExportModal: React.FC = () => {
   } | null>(null);
   const [jsonImportMode, setJsonImportMode] = useState<"merge" | "replace">("merge");
   const [isImportingJson, setIsImportingJson] = useState(false);
+
+  // Cloud & Netlify Connection States
+  const [showCloudSettings, setShowCloudSettings] = useState(false);
+  const [customApiUrl, setCustomApiUrl] = useState(() => localStorage.getItem("meuslinks_api_url") || "");
+  const [customSupabaseUrl, setCustomSupabaseUrl] = useState(() => localStorage.getItem("meuslinks_supabase_url") || "");
+  const [customSupabaseAnonKey, setCustomSupabaseAnonKey] = useState(() => localStorage.getItem("meuslinks_supabase_anon_key") || "");
+
+  const handleSaveCloudSettings = () => {
+    if (customApiUrl.trim()) {
+      localStorage.setItem("meuslinks_api_url", customApiUrl.trim());
+    } else {
+      localStorage.removeItem("meuslinks_api_url");
+    }
+
+    if (customSupabaseUrl.trim()) {
+      localStorage.setItem("meuslinks_supabase_url", customSupabaseUrl.trim());
+    } else {
+      localStorage.removeItem("meuslinks_supabase_url");
+    }
+
+    if (customSupabaseAnonKey.trim()) {
+      localStorage.setItem("meuslinks_supabase_anon_key", customSupabaseAnonKey.trim());
+    } else {
+      localStorage.removeItem("meuslinks_supabase_anon_key");
+    }
+
+    addToast({
+      type: "success",
+      title: "Configurações de Nuvem salvas!",
+      message: "Suas preferências de servidor e Supabase foram atualizadas para o Netlify."
+    });
+    refreshData();
+  };
 
   if (!isImportExportOpen) return null;
 
@@ -524,6 +563,83 @@ export const ImportExportModal: React.FC = () => {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Netlify & Cloud Connection Info / Settings */}
+              <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+                <button
+                  type="button"
+                  onClick={() => setShowCloudSettings(!showCloudSettings)}
+                  className="w-full flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 transition-colors text-xs font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  <div className="flex items-center gap-2">
+                    <Cloud className="w-4 h-4 text-blue-500" />
+                    <span>Conexão Nuvem / Servidor Netlify</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold">
+                      Ativo
+                    </span>
+                  </div>
+                  {showCloudSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+
+                {showCloudSettings && (
+                  <div className="mt-3 p-3.5 bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-3 text-xs">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Na <strong>Netlify</strong>, o aplicativo roda em modo estático com persistência híbrida automática (Navegador + Supabase). Você pode opcionalmente apontar para sua própria URL de backend ou Supabase:
+                    </p>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                        <Server className="w-3.5 h-3.5 text-indigo-500" />
+                        URL da API Backend (Opcional)
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="Ex: https://meu-backend.railway.app/api (deixe vazio para usar /api ou Supabase)"
+                        value={customApiUrl}
+                        onChange={(e) => setCustomApiUrl(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                        <Key className="w-3.5 h-3.5 text-emerald-500" />
+                        Supabase URL (Opcional)
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="https://xyzcompany.supabase.co"
+                        value={customSupabaseUrl}
+                        onChange={(e) => setCustomSupabaseUrl(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Supabase Anon Key (Opcional)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="eyJhbGciOi..."
+                        value={customSupabaseAnonKey}
+                        onChange={(e) => setCustomSupabaseAnonKey(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                      />
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={handleSaveCloudSettings}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-xs"
+                      >
+                        Salvar Conexões
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
