@@ -130,12 +130,11 @@ export const ShortcutBar: React.FC = () => {
     handleLinkClick,
     setIsAddLinkOpen,
     setEditingLink,
-    openAddLinkForShortcut,
     toggleShortcutLink,
-    reorderShortcuts
+    reorderShortcuts,
+    isShortcutEditMode
   } = useApp();
   const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -236,20 +235,20 @@ export const ShortcutBar: React.FC = () => {
         >
           {shortcutLinks.length === 0 ? (
             <span className="text-xs text-slate-400 dark:text-slate-500 italic py-1">
-              Nenhum atalho fixado. Clique em &ldquo;+ Novo Link&rdquo; para fixar links na barra rápida.
+              Nenhum atalho fixado. Use o botão &ldquo;+ Novo Link&rdquo; no cabeçalho acima para adicionar links aqui.
             </span>
           ) : (
             shortcutLinks.map((link) => (
               <ShortcutItem
                 key={link.id}
                 link={link}
-                isEditMode={isEditMode}
+                isEditMode={isShortcutEditMode}
                 draggedId={draggedId}
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
                 onClick={() => {
-                  if (isEditMode) {
+                  if (isShortcutEditMode) {
                     setEditingLink(link);
                     setIsAddLinkOpen(true);
                   } else {
@@ -283,42 +282,14 @@ export const ShortcutBar: React.FC = () => {
         )}
       </div>
 
-      {/* Action Buttons pinned on the right side of the 100% horizontal bar */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 pl-2 sm:pl-3 border-l border-slate-200/80 dark:border-slate-800/80">
-        {/* Novo Link Button */}
-        <button
-          onClick={openAddLinkForShortcut}
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/70 hover:bg-blue-100/80 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 transition-all shrink-0 cursor-pointer shadow-2xs hover:shadow-xs active:scale-95"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span className="hidden min-[420px]:inline">Novo Link</span>
-        </button>
-
-        {/* Botão Editar Links */}
-        {shortcutLinks.length > 0 && (
-          <button
-            onClick={() => setIsEditMode((prev) => !prev)}
-            title={isEditMode ? "Concluir edição dos atalhos" : "Editar links da barra de atalhos"}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 cursor-pointer shadow-2xs active:scale-95 ${
-              isEditMode
-                ? "bg-amber-500 hover:bg-amber-600 text-white shadow-xs"
-                : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80"
-            }`}
-          >
-            {isEditMode ? (
-              <>
-                <Check className="w-3.5 h-3.5" />
-                <span>Concluir</span>
-              </>
-            ) : (
-              <>
-                <Pencil className="w-3.5 h-3.5 text-amber-500" />
-                <span className="hidden min-[480px]:inline">Editar Links</span>
-              </>
-            )}
-          </button>
-        )}
-      </div>
+      {/* Optional Active Edit Indicator when editing shortcuts from header */}
+      {isShortcutEditMode && (
+        <div className="shrink-0 pl-2 border-l border-amber-200 dark:border-amber-900/60 hidden sm:flex items-center">
+          <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/70 px-2 py-0.5 rounded-md border border-amber-300/80 dark:border-amber-700/80">
+            Arraste para reordenar
+          </span>
+        </div>
+      )}
     </div>
   );
 };

@@ -95,6 +95,8 @@ interface AppContextType {
   preselectedIsShortcut: boolean;
   setPreselectedIsShortcut: (isShortcut: boolean) => void;
   openAddLinkForShortcut: () => void;
+  isShortcutEditMode: boolean;
+  setIsShortcutEditMode: React.Dispatch<React.SetStateAction<boolean>>;
 
   isAddCategoryOpen: boolean;
   setIsAddCategoryOpen: (open: boolean) => void;
@@ -234,6 +236,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [editingLink, setEditingLink] = useState<LinkItem | null>(null);
   const [preselectedSubcategoryId, setPreselectedSubcategoryId] = useState<string | null>(null);
   const [preselectedIsShortcut, setPreselectedIsShortcut] = useState(false);
+  const [isShortcutEditMode, setIsShortcutEditMode] = useState(false);
 
   const openAddLinkForSubcategory = (subId: string, catId?: string) => {
     setEditingLink(null);
@@ -960,6 +963,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleReadLaterLink,
         toggleShortcutLink,
         reorderShortcuts,
+        isShortcutEditMode,
+        setIsShortcutEditMode,
         createCategory,
         updateCategory,
         deleteCategoryWithChoice,
