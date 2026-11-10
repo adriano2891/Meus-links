@@ -44,6 +44,7 @@ export const ExtensionGuideModal: React.FC = () => {
   const [testUrl, setTestUrl] = useState("https://github.com/trending");
   const [testTitle, setTestTitle] = useState("GitHub Trending Repositories");
   const [testCategoryId, setTestCategoryId] = useState("");
+  const [testSubcategoryId, setTestSubcategoryId] = useState("");
   const [testTags, setTestTags] = useState("Desenvolvimento, Ferramentas");
   const [isTesting, setIsTesting] = useState(false);
 
@@ -63,10 +64,21 @@ export const ExtensionGuideModal: React.FC = () => {
 
   useEffect(() => {
     loadStats();
-    if (categories.length > 0 && !testCategoryId) {
-      setTestCategoryId(categories[0].id);
+    if (categories.length > 0) {
+      if (!testCategoryId || !categories.some((c) => c.id === testCategoryId)) {
+        setTestCategoryId(categories[0].id);
+      }
+    } else {
+      setTestCategoryId("");
+      setTestSubcategoryId("");
     }
   }, [categories]);
+
+  useEffect(() => {
+    if (testSubcategoryId && !subcategories.some((s) => s.id === testSubcategoryId && s.categoryId === testCategoryId)) {
+      setTestSubcategoryId("");
+    }
+  }, [testCategoryId, subcategories, testSubcategoryId]);
 
   const handleCopyToken = () => {
     navigator.clipboard.writeText(apiToken);
@@ -110,6 +122,7 @@ export const ExtensionGuideModal: React.FC = () => {
         url: testUrl,
         title: testTitle,
         categoryId: testCategoryId,
+        subcategoryId: testSubcategoryId || undefined,
         tags: tagsArray,
         isReadLater: true,
         token: apiToken
@@ -458,17 +471,66 @@ export const ExtensionGuideModal: React.FC = () => {
               </div>
               <select
                 value={testCategoryId}
-                onChange={(e) => setTestCategoryId(e.target.value)}
+                onChange={(e) => {
+                  setTestCategoryId(e.target.value);
+                  setTestSubcategoryId("");
+                }}
                 required
                 className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium"
               >
-                <option value="">-- Selecione uma categoria --</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    📁 {c.name}
-                  </option>
-                ))}
+                <option value="">-- Selecione uma categoria (obrigatório) --</option>
+                {categories.map((c) => {
+                  const catSubs = subcategories.filter((s) => s.categoryId === c.id);
+                  const subCountText = catSubs.length > 0 ? ` (${catSubs.length} subcategorias)` : "";
+                  return (
+                    <option key={c.id} value={c.id}>
+                      📁 {c.name}{subCountText}
+                    </option>
+                  );
+                })}
               </select>
+              <small className="block text-[11px] text-slate-400 mt-1">
+                Escolha onde guardar este link no App.
+              </small>
+            </div>
+
+            {/* Subcategoria (Opcional) */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Subcategoria <span className="text-slate-400 font-normal lowercase">(opcional)</span>
+                </label>
+                <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded-md">
+                  {testCategoryId
+                    ? `${subcategories.filter((s) => s.categoryId === testCategoryId).length} disponível(is)`
+                    : "Aguardando categoria"}
+                </span>
+              </div>
+              <select
+                value={testSubcategoryId}
+                onChange={(e) => setTestSubcategoryId(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium"
+              >
+                {!testCategoryId ? (
+                  <option value="">-- Selecione uma categoria acima primeiro --</option>
+                ) : (
+                  <>
+                    <option value="">
+                      📁 Nenhuma (salvar na raiz de &quot;{categories.find((c) => c.id === testCategoryId)?.name || "categoria"}&quot;)
+                    </option>
+                    {subcategories
+                      .filter((s) => s.categoryId === testCategoryId)
+                      .map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          ↳ 📂 {sub.name}
+                        </option>
+                      ))}
+                  </>
+                )}
+              </select>
+              <small className="block text-[11px] text-slate-400 mt-1">
+                Selecione uma subcategoria ou salve na raiz de &quot;{categories.find((c) => c.id === testCategoryId)?.name || "categoria"}&quot;.
+              </small>
             </div>
 
             <div>

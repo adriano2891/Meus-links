@@ -1,5 +1,5 @@
 // Meus Links - Content Script Bridge
-// Executado nas abas do Meus Links para sincronização automática de sessão e proxy de requisições.
+// Executado nas abas do Meus Links para sincronização automática de sessão, categorias e subcategorias.
 
 (function () {
   const isExtensionContext = typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id;
@@ -22,22 +22,68 @@
     }
   }
 
-  // Sincroniza sessão atual com o armazenamento da extensão
-  function syncSessionWithExtension() {
+  function getLocalCategories() {
+    try {
+      const raw = localStorage.getItem("meuslinks_categories");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      const offline = localStorage.getItem("meuslinks_offline_data");
+      if (offline) {
+        const parsed = JSON.parse(offline);
+        if (Array.isArray(parsed.categories)) return parsed.categories;
+      }
+    } catch {}
+    return null;
+  }
+
+  function getLocalSubcategories() {
+    try {
+      const raw = localStorage.getItem("meuslinks_subcategories");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      const offline = localStorage.getItem("meuslinks_offline_data");
+      if (offline) {
+        const parsed = JSON.parse(offline);
+        if (Array.isArray(parsed.subcategories)) return parsed.subcategories;
+      }
+    } catch {}
+    return null;
+  }
+
+  // Sincroniza sessão, categorias e subcategorias atuais com o armazenamento da extensão
+  function syncWithExtension(customCats = null, customSubs = null) {
     const token = getLocalToken();
     const user = getLocalUser();
+    const categories = customCats || getLocalCategories();
+    const subcategories = customSubs || getLocalSubcategories();
+
+    const dataToSave = {};
     if (token) {
-      chrome.storage.local.set({
-        authToken: token,
-        user: user || { id: token, email: "a.a.silva2891@gmail.com", name: "Usuário Conectado" },
-        serverUrl: window.location.origin
-      }, () => {
-        // Notifica o background
+      dataToSave.authToken = token;
+      dataToSave.user = user || { id: token, email: "a.a.silva2891@gmail.com", name: "Usuário Conectado" };
+      dataToSave.serverUrl = window.location.origin;
+    }
+    if (Array.isArray(categories)) {
+      dataToSave.categories = categories;
+    }
+    if (Array.isArray(subcategories)) {
+      dataToSave.subcategories = subcategories;
+    }
+
+    if (Object.keys(dataToSave).length > 0) {
+      chrome.storage.local.set(dataToSave, () => {
+        // Notifica o popup / background da extensão em tempo real
         try {
           chrome.runtime.sendMessage({
-            action: "SESSION_SYNCED",
+            action: "CATEGORIES_UPDATED",
             token,
-            origin: window.location.origin
+            origin: window.location.origin,
+            categories: dataToSave.categories,
+            subcategories: dataToSave.subcategories
           });
         } catch {}
       });
@@ -45,12 +91,29 @@
   }
 
   // Executa verificação inicial
-  syncSessionWithExtension();
+  syncWithExtension();
+
+  // Monitora eventos disparados em tempo real pelo React App
+  window.addEventListener("meuslinks_categories_updated", (e) => {
+    syncWithExtension(e.detail?.categories, e.detail?.subcategories);
+  });
+
+  window.addEventListener("message", (e) => {
+    if (e.data && e.data.type === "MEUS_LINKS_CATEGORIES_CHANGED") {
+      syncWithExtension(e.data.categories, e.data.subcategories);
+    }
+  });
 
   // Monitora alterações no localStorage
   window.addEventListener("storage", (e) => {
-    if (e.key === "meuslinks_token" || e.key === "meuslinks_user") {
-      syncSessionWithExtension();
+    if (
+      e.key === "meuslinks_token" ||
+      e.key === "meuslinks_user" ||
+      e.key === "meuslinks_categories" ||
+      e.key === "meuslinks_subcategories" ||
+      e.key === "meuslinks_offline_data"
+    ) {
+      syncWithExtension();
     }
   });
 
@@ -58,12 +121,27 @@
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "PING_APP") {
       const token = getLocalToken();
+      const categories = getLocalCategories();
+      const subcategories = getLocalSubcategories();
       sendResponse({
         ok: true,
         hasApp: true,
         token: token || null,
         origin: window.location.origin,
-        title: document.title
+        title: document.title,
+        categories: categories || undefined,
+        subcategories: subcategories || undefined
+      });
+      return false;
+    }
+
+    if (request.action === "GET_CATEGORIES") {
+      const categories = getLocalCategories();
+      const subcategories = getLocalSubcategories();
+      sendResponse({
+        ok: true,
+        categories: categories || [],
+        subcategories: subcategories || []
       });
       return false;
     }
@@ -74,8 +152,6 @@
         window.location.hostname === "localhost" ||
         window.location.hostname === "127.0.0.1";
 
-      // Non-app frames (e.g. outer aistudio.google.com container) must ignore EXECUTE_API
-      // so the actual inner app iframe responds with same-origin credentials.
       if (!isAppOrigin) {
         return false;
       }
@@ -133,8 +209,13 @@
     }
 
     if (request.action === "FORCE_SYNC") {
-      syncSessionWithExtension();
-      sendResponse({ ok: true, token: getLocalToken() });
+      syncWithExtension();
+      sendResponse({
+        ok: true,
+        token: getLocalToken(),
+        categories: getLocalCategories(),
+        subcategories: getLocalSubcategories()
+      });
       return false;
     }
   });

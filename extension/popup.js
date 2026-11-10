@@ -483,12 +483,39 @@ async function detectAndSyncFromTabs(interactive = false) {
             try {
               const token = localStorage.getItem("meuslinks_token");
               const userRaw = localStorage.getItem("meuslinks_user");
-              if (!token) return null;
+              
+              let categories = null;
+              try {
+                const catsRaw = localStorage.getItem("meuslinks_categories");
+                if (catsRaw) categories = JSON.parse(catsRaw);
+              } catch {}
+
+              let subcategories = null;
+              try {
+                const subsRaw = localStorage.getItem("meuslinks_subcategories");
+                if (subsRaw) subcategories = JSON.parse(subsRaw);
+              } catch {}
+
+              if (!categories || !categories.length) {
+                try {
+                  const offRaw = localStorage.getItem("meuslinks_offline_data");
+                  if (offRaw) {
+                    const off = JSON.parse(offRaw);
+                    if (off && Array.isArray(off.categories)) categories = off.categories;
+                    if (off && Array.isArray(off.subcategories)) subcategories = off.subcategories;
+                  }
+                } catch {}
+              }
+
+              if (!token && (!categories || !categories.length)) return null;
+
               return {
                 ok: true,
-                token,
+                token: token || null,
                 user: userRaw ? JSON.parse(userRaw) : null,
-                origin: window.location.origin
+                origin: window.location.origin,
+                categories,
+                subcategories
               };
             } catch {
               return null;
@@ -497,7 +524,7 @@ async function detectAndSyncFromTabs(interactive = false) {
         });
         if (Array.isArray(results)) {
           for (const item of results) {
-            if (item && item.result && item.result.token) {
+            if (item && item.result && (item.result.token || item.result.categories)) {
               session = item.result;
               break;
             }
@@ -517,17 +544,29 @@ async function detectAndSyncFromTabs(interactive = false) {
       });
     }
 
-    if (session && session.token) {
-      appState.authToken = session.token;
-      appState.user = session.user || DEFAULT_USER;
+    if (session) {
+      if (session.token) {
+        appState.authToken = session.token;
+      }
+      if (session.user) {
+        appState.user = session.user;
+      }
       if (session.origin && !session.origin.includes("aistudio.google.com")) {
         appState.serverUrl = session.origin;
+      }
+      if (Array.isArray(session.categories) && session.categories.length > 0) {
+        appState.categories = session.categories;
+      }
+      if (Array.isArray(session.subcategories)) {
+        appState.subcategories = session.subcategories;
       }
 
       storage.set({
         authToken: appState.authToken,
         user: appState.user,
-        serverUrl: appState.serverUrl
+        serverUrl: appState.serverUrl,
+        categories: appState.categories,
+        subcategories: appState.subcategories
       });
 
       renderCategoriesAndSubcategories();
@@ -555,7 +594,11 @@ function showLoginNotice(msg) {
 function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId = null) {
   if (!categorySelect) return;
 
-  const currentSelection = preferredCatId || categorySelect.value || (appState.categories[0] ? appState.categories[0].id : "");
+  const rawSelection = preferredCatId || categorySelect.value;
+  const isSelectionStillValid = appState.categories.some((c) => c.id === rawSelection);
+  const currentSelection = isSelectionStillValid
+    ? rawSelection
+    : (appState.categories[0] ? appState.categories[0].id : "");
 
   categorySelect.innerHTML = `<option value="">-- Selecione uma categoria (obrigatório) --</option>`;
 
@@ -610,17 +653,70 @@ async function refreshCategoriesSilently() {
       }
     }
 
-    if (Array.isArray(categories) && categories.length > 0) {
-      appState.categories = categories;
-    }
-    if (Array.isArray(subcategories) && subcategories.length > 0) {
-      appState.subcategories = subcategories;
+    // Secondary fallback: Tab message to open content script
+    if (!Array.isArray(categories) || categories.length === 0) {
+      const appTab = await findAppTab();
+      if (appTab && appTab.id && typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
+        const catRes = await new Promise((res) => {
+          chrome.tabs.sendMessage(appTab.id, { action: "GET_CATEGORIES" }, (r) => {
+            if (chrome.runtime.lastError) res(null);
+            else res(r);
+          });
+        });
+        if (catRes && Array.isArray(catRes.categories) && catRes.categories.length > 0) {
+          categories = catRes.categories;
+          subcategories = catRes.subcategories || [];
+        }
+      }
     }
 
-    renderCategoriesAndSubcategories(categorySelect.value, subcategorySelect.value);
+    let updated = false;
+    if (Array.isArray(categories) && categories.length > 0) {
+      appState.categories = categories;
+      updated = true;
+    }
+    if (Array.isArray(subcategories)) {
+      appState.subcategories = subcategories;
+      updated = true;
+    }
+
+    if (updated) {
+      storage.set({
+        categories: appState.categories,
+        subcategories: appState.subcategories
+      });
+    }
+
+    renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
   } catch (err) {
     console.warn("Silent category refresh warning (using local defaults):", err);
   }
+}
+
+// -------------------------------------------------------------
+// Live Listener for Category & Subcategory updates from App Bridge
+// -------------------------------------------------------------
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.action === "CATEGORIES_UPDATED") {
+      let changed = false;
+      if (Array.isArray(msg.categories) && msg.categories.length > 0) {
+        appState.categories = msg.categories;
+        changed = true;
+      }
+      if (Array.isArray(msg.subcategories)) {
+        appState.subcategories = msg.subcategories;
+        changed = true;
+      }
+      if (changed) {
+        storage.set({
+          categories: appState.categories,
+          subcategories: appState.subcategories
+        });
+        renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
+      }
+    }
+  });
 }
 
 // -------------------------------------------------------------
@@ -638,12 +734,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   showView("save");
 
   // Read saved settings from storage
-  storage.get(["authToken", "user", "serverUrl"], async (data) => {
+  storage.get(["authToken", "user", "serverUrl", "categories", "subcategories"], async (data) => {
     if (data.serverUrl) {
       appState.serverUrl = data.serverUrl.replace(/\/+$/, "");
     }
     if (serverUrlInput) {
       serverUrlInput.value = appState.serverUrl;
+    }
+
+    // Restore cached categories and subcategories if present
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      appState.categories = data.categories;
+    }
+    if (Array.isArray(data.subcategories)) {
+      appState.subcategories = data.subcategories;
     }
 
     // Always keep active credentials
@@ -654,12 +758,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     storage.set({
       authToken: appState.authToken,
       user: appState.user,
-      serverUrl: appState.serverUrl
+      serverUrl: appState.serverUrl,
+      categories: appState.categories,
+      subcategories: appState.subcategories
     });
 
     if (headerUserEmail) {
       headerUserEmail.textContent = appState.user.name || appState.user.email;
     }
+
+    // Re-render dropdowns with restored storage data
+    renderCategoriesAndSubcategories();
 
     // Capture active tab info
     await captureActiveTab();

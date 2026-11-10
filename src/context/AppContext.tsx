@@ -397,6 +397,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [refreshData, addToast]);
 
+  // Synchronize categories & subcategories in real-time with the browser extension
+  useEffect(() => {
+    try {
+      localStorage.setItem("meuslinks_categories", JSON.stringify(categories));
+      localStorage.setItem("meuslinks_subcategories", JSON.stringify(subcategories));
+
+      // Update offline DB cache if present
+      const rawOffline = localStorage.getItem("meuslinks_offline_data");
+      if (rawOffline) {
+        try {
+          const parsed = JSON.parse(rawOffline);
+          parsed.categories = categories;
+          parsed.subcategories = subcategories;
+          localStorage.setItem("meuslinks_offline_data", JSON.stringify(parsed));
+        } catch {}
+      }
+
+      // Broadcast to extension content script via DOM event and postMessage
+      window.dispatchEvent(
+        new CustomEvent("meuslinks_categories_updated", {
+          detail: { categories, subcategories }
+        })
+      );
+      window.postMessage(
+        {
+          type: "MEUS_LINKS_CATEGORIES_CHANGED",
+          categories,
+          subcategories
+        },
+        "*"
+      );
+
+      // Direct Chrome Extension messaging if available in window context
+      const winChrome = (window as unknown as { chrome?: { runtime?: { sendMessage?: (msg: unknown) => void } } }).chrome;
+      if (winChrome && winChrome.runtime && typeof winChrome.runtime.sendMessage === "function") {
+        winChrome.runtime.sendMessage({
+          action: "CATEGORIES_UPDATED",
+          categories,
+          subcategories
+        });
+      }
+    } catch (err) {
+      console.warn("Could not sync categories with extension bridge:", err);
+    }
+  }, [categories, subcategories]);
+
   // Keyboard Shortcuts (Ctrl+K, N, L, C)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -638,6 +684,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     handleLinks: "delete_links" | "move_links" | "keep_uncategorized",
     targetCategoryId?: string
   ) => {
+    // Optimistic removal so extension card and UI update instantly
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+    setSubcategories((prev) => prev.filter((s) => s.categoryId !== id));
     await api.deleteCategory(id, handleLinks, targetCategoryId);
     await refreshData();
     setCategoryToDelete(null);
