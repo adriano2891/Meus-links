@@ -1,6 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useApp } from "../context/AppContext";
-import { Plus, GripVertical, ExternalLink, Globe, Pencil, Check, X } from "lucide-react";
+import {
+  Plus,
+  GripVertical,
+  ExternalLink,
+  Globe,
+  Pencil,
+  Check,
+  X,
+  ChevronLeft,
+  ChevronRight
+} from "lucide-react";
 import { LinkItem } from "../types";
 
 interface ShortcutItemProps {
@@ -75,8 +85,8 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
         <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
       )}
 
-      {/* Title - smoothly fits width according to text length */}
-      <span className="whitespace-nowrap max-w-[220px] truncate font-medium">
+      {/* Title with responsive maximum width */}
+      <span className="whitespace-nowrap max-w-[130px] sm:max-w-[170px] md:max-w-[220px] truncate font-medium">
         {link.title}
       </span>
 
@@ -127,9 +137,52 @@ export const ShortcutBar: React.FC = () => {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
   const shortcutLinks = links
     .filter((l) => l.isShortcut)
     .sort((a, b) => (a.shortcutOrder || 0) - (b.shortcutOrder || 0));
+
+  const checkScroll = useCallback(() => {
+    if (scrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+      setCanScrollLeft(scrollLeft > 4);
+      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 4);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkScroll();
+    const el = scrollRef.current;
+    if (el) {
+      el.addEventListener("scroll", checkScroll, { passive: true });
+    }
+    window.addEventListener("resize", checkScroll);
+    return () => {
+      if (el) {
+        el.removeEventListener("scroll", checkScroll);
+      }
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [shortcutLinks, checkScroll]);
+
+  // Support wheel scrolling horizontally
+  const handleWheel = (e: React.WheelEvent) => {
+    if (scrollRef.current) {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        scrollRef.current.scrollLeft += e.deltaY;
+      }
+    }
+  };
+
+  const handleScrollStep = (direction: "left" | "right") => {
+    if (scrollRef.current) {
+      const offset = direction === "left" ? -280 : 280;
+      scrollRef.current.scrollBy({ left: offset, behavior: "smooth" });
+    }
+  };
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedId(id);
@@ -160,50 +213,85 @@ export const ShortcutBar: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
-      <div className="flex items-center gap-1.5 flex-1 min-w-0">
-        {shortcutLinks.length === 0 ? (
-          <span className="text-xs text-slate-400 dark:text-slate-500 italic py-1">
-            Nenhum atalho fixado. Marque a opção &ldquo;Adicionar aos atalhos&rdquo; ao criar ou editar um link.
-          </span>
-        ) : (
-          shortcutLinks.map((link) => (
-            <ShortcutItem
-              key={link.id}
-              link={link}
-              isEditMode={isEditMode}
-              draggedId={draggedId}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              onClick={() => {
-                if (isEditMode) {
-                  setEditingLink(link);
-                  setIsAddLinkOpen(true);
-                } else {
-                  handleLinkClick(link);
-                }
-              }}
-              onEdit={(e) => {
-                e.stopPropagation();
-                setEditingLink(link);
-                setIsAddLinkOpen(true);
-              }}
-              onUnpin={(e) => {
-                e.stopPropagation();
-                toggleShortcutLink(link);
-              }}
-            />
-          ))
+    <div className="w-full px-3 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-2.5 overflow-hidden select-none bg-slate-50/50 dark:bg-slate-900/50">
+      {/* 100% Horizontal Shortcuts Area with Scroll Affordances */}
+      <div className="relative flex-1 min-w-0 flex items-center">
+        {/* Left Scroll Arrow */}
+        {canScrollLeft && (
+          <button
+            type="button"
+            onClick={() => handleScrollStep("left")}
+            aria-label="Rolar para esquerda"
+            className="absolute left-0 z-10 p-1.5 rounded-lg bg-white/95 dark:bg-slate-800/95 text-slate-700 dark:text-slate-200 shadow-md border border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer -ml-1"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
         )}
 
+        {/* Scrollable track filling 100% of horizontal space */}
+        <div
+          ref={scrollRef}
+          onWheel={handleWheel}
+          className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0 overflow-x-auto no-scrollbar scroll-smooth py-0.5 px-0.5"
+        >
+          {shortcutLinks.length === 0 ? (
+            <span className="text-xs text-slate-400 dark:text-slate-500 italic py-1">
+              Nenhum atalho fixado. Clique em &ldquo;+ Novo Link&rdquo; para fixar links na barra rápida.
+            </span>
+          ) : (
+            shortcutLinks.map((link) => (
+              <ShortcutItem
+                key={link.id}
+                link={link}
+                isEditMode={isEditMode}
+                draggedId={draggedId}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                onClick={() => {
+                  if (isEditMode) {
+                    setEditingLink(link);
+                    setIsAddLinkOpen(true);
+                  } else {
+                    handleLinkClick(link);
+                  }
+                }}
+                onEdit={(e) => {
+                  e.stopPropagation();
+                  setEditingLink(link);
+                  setIsAddLinkOpen(true);
+                }}
+                onUnpin={(e) => {
+                  e.stopPropagation();
+                  toggleShortcutLink(link);
+                }}
+              />
+            ))
+          )}
+        </div>
+
+        {/* Right Scroll Arrow */}
+        {canScrollRight && (
+          <button
+            type="button"
+            onClick={() => handleScrollStep("right")}
+            aria-label="Rolar para direita"
+            className="absolute right-0 z-10 p-1.5 rounded-lg bg-white/95 dark:bg-slate-800/95 text-slate-700 dark:text-slate-200 shadow-md border border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer -mr-1"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Action Buttons pinned on the right side of the 100% horizontal bar */}
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 pl-2 sm:pl-3 border-l border-slate-200/80 dark:border-slate-800/80">
         {/* Novo Link Button */}
         <button
           onClick={openAddLinkForShortcut}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-dashed border-blue-300 dark:border-blue-700/60 transition-colors shrink-0 cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/70 hover:bg-blue-100/80 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 transition-all shrink-0 cursor-pointer shadow-2xs hover:shadow-xs active:scale-95"
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>Novo Link</span>
+          <span className="hidden min-[420px]:inline">Novo Link</span>
         </button>
 
         {/* Botão Editar Links */}
@@ -211,10 +299,10 @@ export const ShortcutBar: React.FC = () => {
           <button
             onClick={() => setIsEditMode((prev) => !prev)}
             title={isEditMode ? "Concluir edição dos atalhos" : "Editar links da barra de atalhos"}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 cursor-pointer shadow-2xs active:scale-95 ${
               isEditMode
                 ? "bg-amber-500 hover:bg-amber-600 text-white shadow-xs"
-                : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80"
+                : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80"
             }`}
           >
             {isEditMode ? (
@@ -225,7 +313,7 @@ export const ShortcutBar: React.FC = () => {
             ) : (
               <>
                 <Pencil className="w-3.5 h-3.5 text-amber-500" />
-                <span>Editar Links</span>
+                <span className="hidden min-[480px]:inline">Editar Links</span>
               </>
             )}
           </button>
