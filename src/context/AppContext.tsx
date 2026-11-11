@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import {
   UserProfile,
   CollectionItem,
@@ -210,9 +210,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isLoading, setIsLoading] = useState(true);
 
   const [collections, setCollections] = useState<CollectionItem[]>([]);
-  const [categories, setCategories] = useState<CategoryItem[]>([]);
-  const [subcategories, setSubcategories] = useState<SubcategoryItem[]>([]);
-  const [links, setLinks] = useState<LinkItem[]>([]);
+  const [categories, setCategories] = useState<CategoryItem[]>(() => {
+    try {
+      const raw = localStorage.getItem("meuslinks_categories");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      const rawOffline = localStorage.getItem("meuslinks_offline_data");
+      if (rawOffline) {
+        const parsed = JSON.parse(rawOffline);
+        if (Array.isArray(parsed.categories) && parsed.categories.length > 0) return parsed.categories;
+      }
+    } catch {}
+    return [];
+  });
+  const [subcategories, setSubcategories] = useState<SubcategoryItem[]>(() => {
+    try {
+      const raw = localStorage.getItem("meuslinks_subcategories");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      const rawOffline = localStorage.getItem("meuslinks_offline_data");
+      if (rawOffline) {
+        const parsed = JSON.parse(rawOffline);
+        if (Array.isArray(parsed.subcategories)) return parsed.subcategories;
+      }
+    } catch {}
+    return [];
+  });
+  const [links, setLinks] = useState<LinkItem[]>(() => {
+    try {
+      const rawOffline = localStorage.getItem("meuslinks_offline_data");
+      if (rawOffline) {
+        const parsed = JSON.parse(rawOffline);
+        if (Array.isArray(parsed.links) && parsed.links.length > 0) return parsed.links;
+      }
+    } catch {}
+    return [];
+  });
   const [archivedLinks, setArchivedLinks] = useState<LinkItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [trash, setTrash] = useState<TrashItem[]>([]);
@@ -397,8 +434,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [refreshData, addToast]);
 
+  const isDataInitialized = useRef(false);
+
   // Synchronize categories & subcategories in real-time with the browser extension
   useEffect(() => {
+    // Critical guard: never overwrite storage with empty arrays during initial loading!
+    if (!isDataInitialized.current && categories.length === 0 && subcategories.length === 0) {
+      return;
+    }
+    isDataInitialized.current = true;
+
     try {
       localStorage.setItem("meuslinks_categories", JSON.stringify(categories));
       localStorage.setItem("meuslinks_subcategories", JSON.stringify(subcategories));
@@ -566,7 +611,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createLink = async (linkData: Partial<LinkItem>): Promise<LinkItem> => {
     const created = await api.createLink(linkData);
-    setLinks((prev) => [created, ...prev]);
+    setLinks((prev) => {
+      const filtered = prev.filter((l) => l.id !== created.id);
+      const next = [created, ...filtered];
+      try {
+        const rawOffline = localStorage.getItem("meuslinks_offline_data");
+        if (rawOffline) {
+          const parsed = JSON.parse(rawOffline);
+          parsed.links = next;
+          localStorage.setItem("meuslinks_offline_data", JSON.stringify(parsed));
+        }
+      } catch {}
+      return next;
+    });
     addToast({
       type: "success",
       title: "Link adicionado!",
@@ -659,7 +716,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Categories Handlers
   const createCategory = async (catData: Partial<CategoryItem>): Promise<CategoryItem> => {
     const created = await api.createCategory(catData);
-    setCategories((prev) => [...prev, created]);
+    setCategories((prev) => {
+      const filtered = prev.filter((c) => c.id !== created.id);
+      const next = [...filtered, created];
+      try {
+        localStorage.setItem("meuslinks_categories", JSON.stringify(next));
+        const rawOffline = localStorage.getItem("meuslinks_offline_data");
+        if (rawOffline) {
+          const parsed = JSON.parse(rawOffline);
+          parsed.categories = next;
+          localStorage.setItem("meuslinks_offline_data", JSON.stringify(parsed));
+        }
+      } catch {}
+      return next;
+    });
     addToast({
       type: "success",
       title: "Categoria criada com sucesso!",

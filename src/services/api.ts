@@ -261,6 +261,12 @@ function saveOfflineDb(db: OfflineStorageSchema) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+    if (Array.isArray(db.categories)) {
+      localStorage.setItem("meuslinks_categories", JSON.stringify(db.categories));
+    }
+    if (Array.isArray(db.subcategories)) {
+      localStorage.setItem("meuslinks_subcategories", JSON.stringify(db.subcategories));
+    }
   } catch (err) {
     console.warn("Could not save offline db:", err);
   }
@@ -371,20 +377,47 @@ export const api = {
         headers: { ...getAuthHeader() }
       });
       if (data && Array.isArray(data.links) && Array.isArray(data.categories)) {
-        // Cache to offline DB
+        const offline = getOfflineDb();
+
+        // Merge categories by ID so local additions are never lost
+        const catMap = new Map<string, CategoryItem>();
+        offline.categories.forEach((c) => catMap.set(c.id, c));
+        data.categories.forEach((c: CategoryItem) => catMap.set(c.id, { ...catMap.get(c.id), ...c }));
+        const mergedCategories = Array.from(catMap.values());
+
+        // Merge subcategories by ID
+        const subMap = new Map<string, SubcategoryItem>();
+        offline.subcategories.forEach((s) => subMap.set(s.id, s));
+        (data.subcategories || []).forEach((s: SubcategoryItem) => subMap.set(s.id, { ...subMap.get(s.id), ...s }));
+        const mergedSubcategories = Array.from(subMap.values());
+
+        // Merge links by ID
+        const linkMap = new Map<string, LinkItem>();
+        offline.links.forEach((l) => linkMap.set(l.id, l));
+        data.links.forEach((l: LinkItem) => linkMap.set(l.id, { ...linkMap.get(l.id), ...l }));
+        const mergedLinks = Array.from(linkMap.values());
+
+        const mergedResult = {
+          ...data,
+          categories: mergedCategories,
+          subcategories: mergedSubcategories,
+          links: mergedLinks
+        };
+
         saveOfflineDb({
           user: data.user || getStoredUser(),
-          collections: data.collections || [],
-          categories: data.categories || [],
-          subcategories: data.subcategories || [],
-          links: data.links || [],
+          collections: data.collections || offline.collections || [],
+          categories: mergedCategories,
+          subcategories: mergedSubcategories,
+          links: mergedLinks,
           archivedLinks: data.archivedLinks || [],
           notes: data.notes || [],
           trash: data.trash || [],
           auditLogs: data.auditLogs || [],
           backups: data.backups || []
         });
-        return data;
+
+        return mergedResult;
       }
     } catch (serverErr) {
       console.warn("Backend /api/data not available (Netlify / Static CDN mode):", serverErr);
@@ -396,12 +429,25 @@ export const api = {
       const supaData = await directSupabaseFetchAll(user.id);
       if (supaData && (supaData.links.length > 0 || supaData.categories.length > 0)) {
         const offline = getOfflineDb();
+
+        const catMap = new Map<string, CategoryItem>();
+        offline.categories.forEach((c) => catMap.set(c.id, c));
+        supaData.categories.forEach((c: CategoryItem) => catMap.set(c.id, { ...catMap.get(c.id), ...c }));
+
+        const subMap = new Map<string, SubcategoryItem>();
+        offline.subcategories.forEach((s) => subMap.set(s.id, s));
+        supaData.subcategories.forEach((s: SubcategoryItem) => subMap.set(s.id, { ...subMap.get(s.id), ...s }));
+
+        const linkMap = new Map<string, LinkItem>();
+        offline.links.forEach((l) => linkMap.set(l.id, l));
+        supaData.links.forEach((l: LinkItem) => linkMap.set(l.id, { ...linkMap.get(l.id), ...l }));
+
         const merged: OfflineStorageSchema = {
           user,
           collections: supaData.collections.length > 0 ? supaData.collections : offline.collections,
-          categories: supaData.categories.length > 0 ? supaData.categories : offline.categories,
-          subcategories: supaData.subcategories.length > 0 ? supaData.subcategories : offline.subcategories,
-          links: supaData.links.length > 0 ? supaData.links : offline.links,
+          categories: Array.from(catMap.values()),
+          subcategories: Array.from(subMap.values()),
+          links: Array.from(linkMap.values()),
           archivedLinks: offline.archivedLinks,
           notes: supaData.notes.length > 0 ? supaData.notes : offline.notes,
           trash: offline.trash,

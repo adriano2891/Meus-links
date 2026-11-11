@@ -584,6 +584,20 @@ app.put("/api/auth/profile", (req, res) => {
   res.json({ user: userSafe });
 });
 
+function mergeById<T extends { id: string }>(primary: T[], secondary: T[]): T[] {
+  const map = new Map<string, T>();
+  (primary || []).forEach((item) => {
+    if (item && item.id) map.set(item.id, item);
+  });
+  (secondary || []).forEach((item) => {
+    if (item && item.id) {
+      const existing = map.get(item.id);
+      map.set(item.id, existing ? { ...existing, ...item } : item);
+    }
+  });
+  return Array.from(map.values());
+}
+
 // App Data Fetcher (All items for current user in one request)
 app.get("/api/data", async (req, res) => {
   const user = getAuthUser(req);
@@ -594,21 +608,73 @@ app.get("/api/data", async (req, res) => {
   // Read fresh from Supabase if connected
   const supabaseData = await getSupabaseAllData(user.id);
 
-  const userCollections = (supabaseData && supabaseData.collections && supabaseData.collections.length > 0)
-    ? supabaseData.collections
-    : db.collections.filter((c) => c.userId === user.id);
+  const dbCollections = db.collections.filter((c) => c.userId === user.id);
+  const userCollections = mergeById(dbCollections, supabaseData?.collections || []);
 
-  const userCategories = (supabaseData && supabaseData.categories && supabaseData.categories.length > 0)
-    ? supabaseData.categories
-    : db.categories.filter((c) => c.userId === user.id);
+  const dbCategories = db.categories.filter((c) => c.userId === user.id);
+  const userCategories = mergeById(dbCategories, supabaseData?.categories || []);
 
-  const userSubcategories = (supabaseData && supabaseData.subcategories && supabaseData.subcategories.length > 0)
-    ? supabaseData.subcategories
-    : (db.subcategories || []).filter((s) => s.userId === user.id);
+  const dbSubcategories = (db.subcategories || []).filter((s) => s.userId === user.id);
+  const userSubcategories = mergeById(dbSubcategories, supabaseData?.subcategories || []);
 
-  const allUserLinks = (supabaseData && supabaseData.links && supabaseData.links.length > 0)
-    ? supabaseData.links
-    : db.links.filter((l) => l.userId === user.id);
+  const dbLinks = db.links.filter((l) => l.userId === user.id);
+  const allUserLinks = mergeById(dbLinks, supabaseData?.links || []);
+
+  // Backfill local db with missing Supabase items so local file stays complete
+  let dbChanged = false;
+  if (supabaseData?.categories?.length) {
+    const localCatIds = new Set(db.categories.map((c) => c.id));
+    for (const sc of supabaseData.categories) {
+      if (!localCatIds.has(sc.id)) {
+        db.categories.push(sc);
+        dbChanged = true;
+      }
+    }
+  }
+  if (supabaseData?.subcategories?.length) {
+    if (!db.subcategories) db.subcategories = [];
+    const localSubIds = new Set(db.subcategories.map((s) => s.id));
+    for (const ss of supabaseData.subcategories) {
+      if (!localSubIds.has(ss.id)) {
+        db.subcategories.push(ss);
+        dbChanged = true;
+      }
+    }
+  }
+  if (supabaseData?.links?.length) {
+    const localLinkIds = new Set(db.links.map((l) => l.id));
+    for (const sl of supabaseData.links) {
+      if (!localLinkIds.has(sl.id)) {
+        db.links.push(sl);
+        dbChanged = true;
+      }
+    }
+  }
+  if (dbChanged) {
+    writeDb(db);
+  }
+
+  // Push local items to Supabase if missing
+  if (supabaseData) {
+    const supaCatIds = new Set((supabaseData.categories || []).map((c: any) => c.id));
+    for (const cat of dbCategories) {
+      if (!supaCatIds.has(cat.id)) {
+        upsertSupabaseCategory(cat).catch(() => {});
+      }
+    }
+    const supaSubIds = new Set((supabaseData.subcategories || []).map((s: any) => s.id));
+    for (const sub of dbSubcategories) {
+      if (!supaSubIds.has(sub.id)) {
+        upsertSupabaseSubcategory(sub).catch(() => {});
+      }
+    }
+    const supaLinkIds = new Set((supabaseData.links || []).map((l: any) => l.id));
+    for (const link of dbLinks) {
+      if (!supaLinkIds.has(link.id)) {
+        upsertSupabaseLink(link).catch(() => {});
+      }
+    }
+  }
 
   const sanitizedUserLinks = allUserLinks.map((l: any) => {
     if (l.isShortcut) {
@@ -963,9 +1029,8 @@ app.get("/api/categories", async (req, res) => {
   if (!user) return res.status(401).json({ error: "Não autenticado." });
   const db = readDb();
   const supabaseData = await getSupabaseAllData(user.id);
-  const userCategories = (supabaseData && supabaseData.categories && supabaseData.categories.length > 0)
-    ? supabaseData.categories
-    : db.categories.filter((c) => c.userId === user.id);
+  const dbCategories = db.categories.filter((c) => c.userId === user.id);
+  const userCategories = mergeById(dbCategories, supabaseData?.categories || []);
   res.json(userCategories);
 });
 
@@ -1125,9 +1190,8 @@ app.get("/api/subcategories", async (req, res) => {
   const { categoryId } = req.query;
 
   const supabaseData = await getSupabaseAllData(user.id);
-  let items = (supabaseData && supabaseData.subcategories && supabaseData.subcategories.length > 0)
-    ? supabaseData.subcategories
-    : db.subcategories.filter((s) => s.userId === user.id);
+  const dbSubs = (db.subcategories || []).filter((s) => s.userId === user.id);
+  let items = mergeById(dbSubs, supabaseData?.subcategories || []);
 
   if (categoryId) {
     items = items.filter((s: any) => s.categoryId === categoryId);
@@ -2066,14 +2130,24 @@ app.post("/api/extension/quick-save", async (req, res) => {
     return res.status(400).json({ error: "A seleção de uma categoria válida é obrigatória." });
   }
 
-  const categoryExists = allCategories.some((c: any) => c.id === categoryId && c.userId === user.id);
-  if (!categoryExists) {
-    return res.status(400).json({ error: "A categoria selecionada não foi encontrada ou não pertence à sua conta." });
+  const isDefaultFavoritesCategory = categoryId === "favorites";
+  let finalCategoryId: string | undefined = undefined;
+  let finalIsFavorite = isFavorite !== undefined ? !!isFavorite : false;
+
+  if (isDefaultFavoritesCategory) {
+    finalIsFavorite = true;
+    finalCategoryId = undefined;
+  } else {
+    const categoryExists = allCategories.some((c: any) => c.id === categoryId && c.userId === user.id);
+    if (!categoryExists) {
+      return res.status(400).json({ error: "A categoria selecionada não foi encontrada ou não pertence à sua conta." });
+    }
+    finalCategoryId = categoryId;
   }
 
   // Subcategory sanitization and strict validation
   let validatedSubcategoryId: string | undefined = undefined;
-  if (subcategoryId && typeof subcategoryId === "string" && subcategoryId.trim()) {
+  if (!isDefaultFavoritesCategory && subcategoryId && typeof subcategoryId === "string" && subcategoryId.trim()) {
     const cleanSubId = subcategoryId.trim();
     const matchingSub = allSubcategories.find(
       (s: any) => s.id === cleanSubId && s.userId === user.id
@@ -2121,10 +2195,10 @@ app.post("/api/extension/quick-save", async (req, res) => {
       ...db.links[existingIndex],
       title: title && title.trim() ? title.trim() : db.links[existingIndex].title,
       description: description !== undefined ? description : db.links[existingIndex].description,
-      categoryId,
+      categoryId: finalCategoryId,
       subcategoryId: validatedSubcategoryId || undefined,
       tags: Array.from(new Set([...db.links[existingIndex].tags, ...tagsList])),
-      isFavorite: isFavorite !== undefined ? !!isFavorite : db.links[existingIndex].isFavorite,
+      isFavorite: isDefaultFavoritesCategory ? true : (isFavorite !== undefined ? !!isFavorite : db.links[existingIndex].isFavorite),
       isReadLater: isReadLater !== undefined ? !!isReadLater : db.links[existingIndex].isReadLater,
       source: "extension",
       updatedAt: now
@@ -2135,7 +2209,7 @@ app.post("/api/extension/quick-save", async (req, res) => {
     targetLink = {
       id: "link-" + Date.now(),
       userId: user.id,
-      categoryId,
+      categoryId: finalCategoryId,
       subcategoryId: validatedSubcategoryId || undefined,
       title: title && title.trim() ? title.trim() : formattedUrl,
       url: formattedUrl,
@@ -2143,7 +2217,7 @@ app.post("/api/extension/quick-save", async (req, res) => {
       tags: tagsList,
       favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(formattedUrl)}&sz=128`,
       isShortcut: false,
-      isFavorite: !!isFavorite,
+      isFavorite: finalIsFavorite,
       isReadLater: isReadLater !== undefined ? !!isReadLater : true,
       isArchived: false,
       clickCount: 0,

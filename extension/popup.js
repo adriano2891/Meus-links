@@ -1,5 +1,6 @@
 // Meus Links - Popup Script (Manifest V3)
-// Versão 1.0.5 com credenciais ativas por padrão, tolerância total a falhas e tab bridge
+// Versão 1.0.6 - Sincronização em tempo real com App (Netlify, Cloud Run e Localhost)
+// Eliminação de categorias mock e integração nativa com Favoritos (Padrão)
 
 const DEFAULT_SERVER_URL = "https://ais-dev-m7nv3mtsexqu3z4xsx5pxl-372689701151.us-east1.run.app";
 const DEFAULT_AUTH_TOKEN = "ml_live_y7bsjzh8kiihfpgj2vg";
@@ -10,75 +11,8 @@ const DEFAULT_USER = {
   plan: "premium"
 };
 
-const DEFAULT_CATEGORIES = [
-  {
-    id: "cat-1",
-    userId: "user-demo-1",
-    name: "Ferramentas de Produtividade",
-    description: "Softwares de gestão, automação e comunicação",
-    color: "#2563EB",
-    icon: "Zap"
-  },
-  {
-    id: "cat-2",
-    userId: "user-demo-1",
-    name: "Financeiro & Bancos",
-    description: "Painéis de controle, bancos e emissão de notas",
-    color: "#059669",
-    icon: "DollarSign"
-  }
-];
-
-const DEFAULT_SUBCATEGORIES = [
-  {
-    id: "sub-1793667563236q3dz",
-    userId: "user-demo-1",
-    categoryId: "cat-1",
-    name: "TESTE002",
-    color: "#F59E0B",
-    icon: "Tag"
-  },
-  {
-    id: "sub-1793797540238iqhe",
-    userId: "user-demo-1",
-    categoryId: "cat-1",
-    name: "TESTW03",
-    color: "#2563EB",
-    icon: "Star"
-  },
-  {
-    id: "sub-prod-dev",
-    userId: "user-demo-1",
-    categoryId: "cat-1",
-    name: "Desenvolvimento & IA",
-    color: "#7C3AED",
-    icon: "Code"
-  },
-  {
-    id: "sub-prod-comms",
-    userId: "user-demo-1",
-    categoryId: "cat-1",
-    name: "Comunicação & Chat",
-    color: "#059669",
-    icon: "MessageSquare"
-  },
-  {
-    id: "sub-fin-bancos",
-    userId: "user-demo-1",
-    categoryId: "cat-2",
-    name: "Bancos Digitais & Carteiras",
-    color: "#059669",
-    icon: "CreditCard"
-  },
-  {
-    id: "sub-fin-fiscal",
-    userId: "user-demo-1",
-    categoryId: "cat-2",
-    name: "Fiscal, Impostos & e-CAC",
-    color: "#D97706",
-    icon: "FileText"
-  }
-];
+const DEFAULT_CATEGORIES = [];
+const DEFAULT_SUBCATEGORIES = [];
 
 // DOM Elements
 const loadingView = document.getElementById("loadingView");
@@ -125,13 +59,13 @@ const summaryCategory = document.getElementById("summaryCategory");
 const openAppBtn = document.getElementById("openAppBtn");
 const saveAnotherBtn = document.getElementById("saveAnotherBtn");
 
-// State (Credentials and categories pre-activated by default)
+// State
 let appState = {
   authToken: DEFAULT_AUTH_TOKEN,
   user: DEFAULT_USER,
   serverUrl: DEFAULT_SERVER_URL,
-  categories: [...DEFAULT_CATEGORIES],
-  subcategories: [...DEFAULT_SUBCATEGORIES]
+  categories: [],
+  subcategories: []
 };
 
 // Storage helper with fallback
@@ -174,46 +108,52 @@ const storage = {
 
 // Switch Views Helper
 function showView(viewId) {
-  loadingView.style.display = "none";
-  loginView.style.display = "none";
-  saveView.style.display = "none";
-  successView.style.display = "none";
+  if (loadingView) loadingView.style.display = "none";
+  if (loginView) loginView.style.display = "none";
+  if (saveView) saveView.style.display = "none";
+  if (successView) successView.style.display = "none";
 
-  if (viewId === "loading") {
+  if (viewId === "loading" && loadingView) {
     loadingView.style.display = "flex";
     loadingView.style.flexDirection = "column";
-  } else if (viewId === "login") {
+  } else if (viewId === "login" && loginView) {
     loginView.style.display = "flex";
     loginView.style.flexDirection = "column";
-    userBadgeArea.style.display = "none";
-    headerStatus.textContent = "Desconectado";
-    headerStatus.className = "badge-status";
+    if (userBadgeArea) userBadgeArea.style.display = "none";
+    if (headerStatus) {
+      headerStatus.textContent = "Desconectado";
+      headerStatus.className = "badge-status";
+    }
     if (loginEmail) loginEmail.value = "a.a.silva2891@gmail.com";
     if (loginPassword) loginPassword.value = "xs54bg21";
-  } else if (viewId === "save") {
+  } else if (viewId === "save" && saveView) {
     saveView.style.display = "flex";
     saveView.style.flexDirection = "column";
-    userBadgeArea.style.display = "flex";
-    if (appState.user) {
+    if (userBadgeArea) userBadgeArea.style.display = "flex";
+    if (appState.user && headerUserEmail) {
       headerUserEmail.textContent = appState.user.name || appState.user.email;
     }
-    headerStatus.textContent = "Conectado";
-    headerStatus.className = "badge-status status-connected";
-  } else if (viewId === "success") {
+    if (headerStatus) {
+      headerStatus.textContent = "Conectado";
+      headerStatus.className = "badge-status status-connected";
+    }
+  } else if (viewId === "success" && successView) {
     successView.style.display = "flex";
     successView.style.flexDirection = "column";
-    userBadgeArea.style.display = "flex";
+    if (userBadgeArea) userBadgeArea.style.display = "flex";
   }
 }
 
 // -------------------------------------------------------------
-// Universal App Tab Finder (Supports Run.app, AI Studio, Localhost)
+// Universal App Tab Finder (Supports Netlify, Vercel, Run.app, Localhost)
 // -------------------------------------------------------------
 function isTabAppCandidate(tab) {
   if (!tab || !tab.url) return false;
   try {
     const u = new URL(tab.url);
     if (
+      u.hostname.includes("netlify.app") ||
+      u.hostname.includes("vercel.app") ||
       u.hostname.includes("run.app") ||
       u.hostname === "localhost" ||
       u.hostname === "127.0.0.1" ||
@@ -240,12 +180,12 @@ async function findAppTab() {
 
     // 2. Query all tabs across all windows
     const allTabs = await chrome.tabs.query({});
-    // Prefer direct cloud run or localhost first
     for (const tab of allTabs) {
       if (!tab.url) continue;
       try {
         const u = new URL(tab.url);
         if (
+          u.hostname.includes("netlify.app") ||
           u.hostname.includes("run.app") ||
           u.hostname === "localhost" ||
           u.hostname === "127.0.0.1"
@@ -255,7 +195,7 @@ async function findAppTab() {
       } catch {}
     }
 
-    // Then check aistudio.google.com or title match
+    // Then check title match
     for (const tab of allTabs) {
       if (isTabAppCandidate(tab)) {
         return tab;
@@ -279,9 +219,12 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
       func: async (endpoint, options) => {
         const hostname = window.location.hostname;
         const isAppFrame =
+          hostname.includes("netlify.app") ||
+          hostname.includes("vercel.app") ||
           hostname.includes("run.app") ||
           hostname === "localhost" ||
-          hostname === "127.0.0.1";
+          hostname === "127.0.0.1" ||
+          (document.title && document.title.includes("Meus Links"));
 
         if (!isAppFrame) return null;
 
@@ -313,6 +256,54 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
               );
               window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: data.link }, "*");
             } catch {}
+
+            return {
+              executed: true,
+              ok: true,
+              status: res.status,
+              contentType,
+              data
+            };
+          }
+
+          // Fallback para hospedagem estática (Netlify sem backend Express)
+          if (!res.ok && endpoint.includes("quick-save")) {
+            try {
+              const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
+              const db = JSON.parse(rawOffline);
+              if (!Array.isArray(db.links)) db.links = [];
+              const payload = options.body ? JSON.parse(options.body) : {};
+              const isFavCat = payload.categoryId === "favorites";
+              const newLink = {
+                id: "link-" + Date.now(),
+                userId: "user-demo-1",
+                title: payload.title || payload.url,
+                url: payload.url,
+                categoryId: isFavCat ? undefined : payload.categoryId,
+                subcategoryId: isFavCat ? undefined : payload.subcategoryId,
+                tags: payload.tags || ["Extensão"],
+                isFavorite: isFavCat ? true : !!payload.isFavorite,
+                isReadLater: payload.isReadLater !== undefined ? !!payload.isReadLater : true,
+                isArchived: false,
+                clickCount: 0,
+                source: "extension",
+                favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(payload.url)}&sz=128`,
+                createdAt: new Date().toISOString()
+              };
+              db.links.unshift(newLink);
+              localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+
+              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: newLink } }));
+              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: newLink }, "*");
+
+              return {
+                executed: true,
+                ok: true,
+                status: 200,
+                contentType: "application/json",
+                data: { success: true, link: newLink }
+              };
+            } catch {}
           }
 
           return {
@@ -323,6 +314,46 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
             data
           };
         } catch (fetchErr) {
+          // Fallback offline
+          if (endpoint.includes("quick-save")) {
+            try {
+              const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
+              const db = JSON.parse(rawOffline);
+              if (!Array.isArray(db.links)) db.links = [];
+              const payload = options.body ? JSON.parse(options.body) : {};
+              const isFavCat = payload.categoryId === "favorites";
+              const newLink = {
+                id: "link-" + Date.now(),
+                userId: "user-demo-1",
+                title: payload.title || payload.url,
+                url: payload.url,
+                categoryId: isFavCat ? undefined : payload.categoryId,
+                subcategoryId: isFavCat ? undefined : payload.subcategoryId,
+                tags: payload.tags || ["Extensão"],
+                isFavorite: isFavCat ? true : !!payload.isFavorite,
+                isReadLater: payload.isReadLater !== undefined ? !!payload.isReadLater : true,
+                isArchived: false,
+                clickCount: 0,
+                source: "extension",
+                favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(payload.url)}&sz=128`,
+                createdAt: new Date().toISOString()
+              };
+              db.links.unshift(newLink);
+              localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+
+              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: newLink } }));
+              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: newLink }, "*");
+
+              return {
+                executed: true,
+                ok: true,
+                status: 200,
+                contentType: "application/json",
+                data: { success: true, link: newLink }
+              };
+            } catch {}
+          }
+
           return {
             executed: true,
             ok: false,
@@ -423,9 +454,7 @@ async function callAppApi(endpoint, options = {}) {
       data = null;
     }
   } else {
-    // Cloud Run returned 302 or HTML preview check
     if (endpoint.includes("quick-save")) {
-      // Auto-open app in background and execute
       if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
         try {
           const newTab = await chrome.tabs.create({ url: appState.serverUrl, active: false });
@@ -483,20 +512,26 @@ async function detectAndSyncFromTabs(interactive = false) {
             try {
               const token = localStorage.getItem("meuslinks_token");
               const userRaw = localStorage.getItem("meuslinks_user");
-              
+
               let categories = null;
-              try {
-                const catsRaw = localStorage.getItem("meuslinks_categories");
-                if (catsRaw) categories = JSON.parse(catsRaw);
-              } catch {}
+              const catsRaw = localStorage.getItem("meuslinks_categories");
+              if (catsRaw !== null && catsRaw !== undefined) {
+                try {
+                  const parsed = JSON.parse(catsRaw);
+                  if (Array.isArray(parsed)) categories = parsed;
+                } catch {}
+              }
 
               let subcategories = null;
-              try {
-                const subsRaw = localStorage.getItem("meuslinks_subcategories");
-                if (subsRaw) subcategories = JSON.parse(subsRaw);
-              } catch {}
+              const subsRaw = localStorage.getItem("meuslinks_subcategories");
+              if (subsRaw !== null && subsRaw !== undefined) {
+                try {
+                  const parsed = JSON.parse(subsRaw);
+                  if (Array.isArray(parsed)) subcategories = parsed;
+                } catch {}
+              }
 
-              if (!categories || !categories.length) {
+              if (categories === null) {
                 try {
                   const offRaw = localStorage.getItem("meuslinks_offline_data");
                   if (offRaw) {
@@ -507,24 +542,23 @@ async function detectAndSyncFromTabs(interactive = false) {
                 } catch {}
               }
 
-              if (!token && (!categories || !categories.length)) return null;
-
               return {
                 ok: true,
                 token: token || null,
                 user: userRaw ? JSON.parse(userRaw) : null,
                 origin: window.location.origin,
-                categories,
-                subcategories
+                categories: categories || [],
+                subcategories: subcategories || []
               };
             } catch {
               return null;
             }
           }
         });
+
         if (Array.isArray(results)) {
           for (const item of results) {
-            if (item && item.result && (item.result.token || item.result.categories)) {
+            if (item && item.result && item.result.ok) {
               session = item.result;
               break;
             }
@@ -554,7 +588,7 @@ async function detectAndSyncFromTabs(interactive = false) {
       if (session.origin && !session.origin.includes("aistudio.google.com")) {
         appState.serverUrl = session.origin;
       }
-      if (Array.isArray(session.categories) && session.categories.length > 0) {
+      if (Array.isArray(session.categories)) {
         appState.categories = session.categories;
       }
       if (Array.isArray(session.subcategories)) {
@@ -581,6 +615,7 @@ async function detectAndSyncFromTabs(interactive = false) {
 }
 
 function showLoginNotice(msg) {
+  if (!loginError) return;
   loginError.textContent = msg;
   loginError.style.display = "block";
   loginError.style.borderColor = "#3b82f6";
@@ -595,34 +630,36 @@ function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId 
   if (!categorySelect) return;
 
   const rawSelection = preferredCatId || categorySelect.value;
-  const isSelectionStillValid = appState.categories.some((c) => c.id === rawSelection);
-  const currentSelection = isSelectionStillValid
-    ? rawSelection
-    : (appState.categories[0] ? appState.categories[0].id : "");
-
   categorySelect.innerHTML = `<option value="">-- Selecione uma categoria (obrigatório) --</option>`;
 
-  if (appState.categories.length === 0) {
-    if (categoryHint) {
-      categoryHint.textContent = "Nenhuma categoria cadastrada no App.";
-      categoryHint.style.color = "#f59e0b";
-    }
-  } else {
-    if (categoryHint) {
-      categoryHint.textContent = "Escolha onde guardar este link no App.";
-      categoryHint.style.color = "";
-    }
+  // 1. Sempre incluir ⭐ Favoritos (Padrão) como categoria padrão do sistema (id: "favorites")
+  const favOption = document.createElement("option");
+  favOption.value = "favorites";
+  favOption.textContent = "⭐ Favoritos (Padrão)";
+  if (rawSelection === "favorites" || (!rawSelection && appState.categories.length === 0)) {
+    favOption.selected = true;
+  }
+  categorySelect.appendChild(favOption);
+
+  // 2. Incluir todas as categorias criadas pelo usuário no App
+  if (Array.isArray(appState.categories)) {
     appState.categories.forEach((cat) => {
-      const catSubs = appState.subcategories.filter((s) => s.categoryId === cat.id);
+      if (cat.id === "favorites") return;
+      const catSubs = (appState.subcategories || []).filter((s) => s.categoryId === cat.id);
       const subCountText = catSubs.length > 0 ? ` (${catSubs.length} subcategorias)` : "";
       const opt = document.createElement("option");
       opt.value = cat.id;
       opt.textContent = `📁 ${cat.name}${subCountText}`;
-      if (cat.id === currentSelection) {
+      if (cat.id === rawSelection) {
         opt.selected = true;
       }
       categorySelect.appendChild(opt);
     });
+  }
+
+  if (categoryHint) {
+    categoryHint.textContent = "Escolha onde guardar este link no App.";
+    categoryHint.style.color = "";
   }
 
   updateSubcategoriesDropdown(categorySelect.value, preferredSubId);
@@ -641,20 +678,16 @@ async function refreshCategoriesSilently() {
     let categories = await callAppApi("/api/categories", { headers: authHeader }).catch(() => null);
     let subcategories = await callAppApi("/api/subcategories", { headers: authHeader }).catch(() => null);
 
-    if (!Array.isArray(categories) || categories.length === 0) {
+    if (!Array.isArray(categories)) {
       const fullData = await callAppApi("/api/data", { headers: authHeader }).catch(() => null);
       if (fullData) {
-        if (Array.isArray(fullData.categories) && fullData.categories.length > 0) {
-          categories = fullData.categories;
-        }
-        if (Array.isArray(fullData.subcategories) && fullData.subcategories.length > 0) {
-          subcategories = fullData.subcategories;
-        }
+        if (Array.isArray(fullData.categories)) categories = fullData.categories;
+        if (Array.isArray(fullData.subcategories)) subcategories = fullData.subcategories;
       }
     }
 
     // Secondary fallback: Tab message to open content script
-    if (!Array.isArray(categories) || categories.length === 0) {
+    if (!Array.isArray(categories)) {
       const appTab = await findAppTab();
       if (appTab && appTab.id && typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
         const catRes = await new Promise((res) => {
@@ -663,7 +696,7 @@ async function refreshCategoriesSilently() {
             else res(r);
           });
         });
-        if (catRes && Array.isArray(catRes.categories) && catRes.categories.length > 0) {
+        if (catRes && Array.isArray(catRes.categories)) {
           categories = catRes.categories;
           subcategories = catRes.subcategories || [];
         }
@@ -671,7 +704,7 @@ async function refreshCategoriesSilently() {
     }
 
     let updated = false;
-    if (Array.isArray(categories) && categories.length > 0) {
+    if (Array.isArray(categories)) {
       appState.categories = categories;
       updated = true;
     }
@@ -685,11 +718,10 @@ async function refreshCategoriesSilently() {
         categories: appState.categories,
         subcategories: appState.subcategories
       });
+      renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
     }
-
-    renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
   } catch (err) {
-    console.warn("Silent category refresh warning (using local defaults):", err);
+    console.warn("Silent category refresh warning:", err);
   }
 }
 
@@ -700,7 +732,7 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.action === "CATEGORIES_UPDATED") {
       let changed = false;
-      if (Array.isArray(msg.categories) && msg.categories.length > 0) {
+      if (Array.isArray(msg.categories)) {
         appState.categories = msg.categories;
         changed = true;
       }
@@ -719,6 +751,26 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
   });
 }
 
+// Live Listener for chrome.storage changes (synced by content script)
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local") {
+      let shouldRender = false;
+      if (changes.categories && Array.isArray(changes.categories.newValue)) {
+        appState.categories = changes.categories.newValue;
+        shouldRender = true;
+      }
+      if (changes.subcategories && Array.isArray(changes.subcategories.newValue)) {
+        appState.subcategories = changes.subcategories.newValue;
+        shouldRender = true;
+      }
+      if (shouldRender) {
+        renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
+      }
+    }
+  });
+}
+
 // -------------------------------------------------------------
 // 1. Initialize
 // -------------------------------------------------------------
@@ -728,7 +780,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (loginPassword) loginPassword.value = "xs54bg21";
 
   // Pre-populate dropdowns with defaults
-  renderCategoriesAndSubcategories("cat-1", "sub-1793667563236q3dz");
+  renderCategoriesAndSubcategories();
 
   // Show Save Link view immediately by default
   showView("save");
@@ -743,7 +795,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     // Restore cached categories and subcategories if present
-    if (Array.isArray(data.categories) && data.categories.length > 0) {
+    if (Array.isArray(data.categories)) {
       appState.categories = data.categories;
     }
     if (Array.isArray(data.subcategories)) {
@@ -858,7 +910,7 @@ async function captureActiveTab() {
 // Login Handler with instant offline fallback
 async function handleLogin(e) {
   if (e) e.preventDefault();
-  loginError.style.display = "none";
+  if (loginError) loginError.style.display = "none";
   setButtonLoading(submitLoginBtn, true, "Conectando...");
 
   const email = (loginEmail ? loginEmail.value.trim() : "") || "a.a.silva2891@gmail.com";
@@ -899,7 +951,6 @@ async function handleLogin(e) {
       return;
     }
   } catch (err) {
-    // If server login throws, gracefully fallback to default account
     console.warn("Server login fallback to default user:", err);
     appState.authToken = DEFAULT_AUTH_TOKEN;
     appState.user = DEFAULT_USER;
@@ -925,6 +976,12 @@ function handleCategoryChange() {
       categoryHint.textContent = "A seleção de categoria é obrigatória para salvar.";
       categoryHint.style.color = "#ef4444";
     }
+  } else if (selectedCatId === "favorites") {
+    if (categoryHint) {
+      categoryHint.textContent = "⭐ Categoria Favoritos (Padrão) selecionada.";
+      categoryHint.style.color = "#f59e0b";
+    }
+    if (isFavorite) isFavorite.checked = true;
   } else {
     if (categoryHint) {
       categoryHint.textContent = "Categoria selecionada com sucesso.";
@@ -939,14 +996,24 @@ function handleCategoryChange() {
 function updateSubcategoriesDropdown(selectedCatId, preserveSelectedSubId = null) {
   if (!subcategorySelect) return;
 
+  // Case 0: Categoria padrão Favoritos
+  if (selectedCatId === "favorites") {
+    subcategorySelect.disabled = false;
+    subcategorySelect.innerHTML = `<option value="">📁 Padrão (salvar na categoria Favoritos)</option>`;
+    if (subcatCountBadge) subcatCountBadge.textContent = "Padrão";
+    if (subcategoryHint) subcategoryHint.textContent = "O link será guardado na categoria Favoritos do App.";
+    if (isFavorite) isFavorite.checked = true;
+    return;
+  }
+
   // Case 1: No category selected yet -> list all subcategories grouped by category
   if (!selectedCatId) {
     subcategorySelect.disabled = false;
     let optionsHtml = `<option value="">-- Selecione uma subcategoria ou escolha a categoria acima --</option>`;
     let totalSubs = 0;
 
-    appState.categories.forEach((cat) => {
-      const catSubs = appState.subcategories.filter((s) => s.categoryId === cat.id);
+    (appState.categories || []).forEach((cat) => {
+      const catSubs = (appState.subcategories || []).filter((s) => s.categoryId === cat.id);
       if (catSubs.length > 0) {
         totalSubs += catSubs.length;
         optionsHtml += `<optgroup label="📁 ${cat.name}">`;
@@ -973,8 +1040,8 @@ function updateSubcategoriesDropdown(selectedCatId, preserveSelectedSubId = null
 
   // Case 2: Specific category is selected -> show its subcategories
   subcategorySelect.disabled = false;
-  const filtered = appState.subcategories.filter((s) => s.categoryId === selectedCatId);
-  const currentCat = appState.categories.find((c) => c.id === selectedCatId);
+  const filtered = (appState.subcategories || []).filter((s) => s.categoryId === selectedCatId);
+  const currentCat = (appState.categories || []).find((c) => c.id === selectedCatId);
   const catName = currentCat ? currentCat.name : "categoria selecionada";
 
   if (filtered.length > 0) {
@@ -998,7 +1065,7 @@ function handleSubcategoryChange() {
   const chosenSubId = subcategorySelect.value;
   if (!chosenSubId) return;
 
-  const foundSub = appState.subcategories.find((s) => s.id === chosenSubId);
+  const foundSub = (appState.subcategories || []).find((s) => s.id === chosenSubId);
   if (foundSub && foundSub.categoryId) {
     if (categorySelect.value !== foundSub.categoryId) {
       categorySelect.value = foundSub.categoryId;
@@ -1035,6 +1102,8 @@ async function handleSaveLink(e) {
     return;
   }
 
+  const isFavCategory = categoryId === "favorites";
+
   const tags = rawTags
     .split(",")
     .map((t) => t.trim())
@@ -1050,10 +1119,10 @@ async function handleSaveLink(e) {
     const payload = {
       url,
       title: title || url,
-      categoryId,
-      subcategoryId,
+      categoryId: isFavCategory ? "favorites" : categoryId,
+      subcategoryId: isFavCategory ? undefined : subcategoryId,
       tags,
-      isFavorite: isFavorite ? isFavorite.checked : false,
+      isFavorite: isFavCategory ? true : (isFavorite ? isFavorite.checked : false),
       isReadLater: isReadLater ? isReadLater.checked : false,
       source: "extension"
     };
@@ -1090,8 +1159,10 @@ async function handleSaveLink(e) {
     }
 
     // Success State
-    const chosenCat = appState.categories.find((c) => c.id === categoryId);
-    const chosenSub = appState.subcategories.find((s) => s.id === subcategoryId);
+    const chosenCat = isFavCategory
+      ? { name: "⭐ Favoritos (Padrão)" }
+      : (appState.categories || []).find((c) => c.id === categoryId);
+    const chosenSub = (appState.subcategories || []).find((s) => s.id === subcategoryId);
     if (summaryTitle) summaryTitle.textContent = title || url;
     if (summaryUrl) summaryUrl.textContent = url;
     if (summaryCategory) {
