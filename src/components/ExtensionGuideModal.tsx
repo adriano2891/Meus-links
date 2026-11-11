@@ -20,10 +20,12 @@ import {
   RefreshCw
 } from "lucide-react";
 import { api } from "../services/api";
+import JSZip from "jszip";
 
 export const ExtensionGuideModal: React.FC = () => {
   const { user, addToast, categories, subcategories, refreshData } = useApp();
   const [copied, setCopied] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [selectedBrowser, setSelectedBrowser] = useState<"chrome" | "edge" | "brave">("chrome");
 
   // Stats state
@@ -91,13 +93,158 @@ export const ExtensionGuideModal: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownloadZip = () => {
+  const triggerBlobDownload = (blob: Blob, filename = "meus-links-extensao-v3.zip") => {
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.style.display = "none";
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(blobUrl);
+    }, 4000);
+  };
+
+  const handleDownloadZip = async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
     addToast({
       type: "info",
       title: "Iniciando download do pacote...",
-      message: "O arquivo meus-links-extensao-v3.zip está sendo baixado."
+      message: "Preparando arquivo meus-links-extensao-v3.zip para download..."
     });
-    window.location.href = api.getExtensionDownloadUrl();
+
+    try {
+      // Strategy 1: Fetch prebuilt static ZIP or server endpoint as binary Blob
+      const candidateUrls = [
+        "/meus-links-extensao-v3.zip",
+        api.getExtensionDownloadUrl(),
+        "/extension/meus-links-extensao-v3.zip"
+      ];
+
+      let downloadedBlob: Blob | null = null;
+
+      for (const url of candidateUrls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const ct = res.headers.get("content-type") || "";
+            // Reject HTML fallback/error pages
+            if (!ct.includes("text/html")) {
+              const b = await res.blob();
+              if (b && b.size > 1000) {
+                downloadedBlob = b;
+                break;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      if (downloadedBlob) {
+        triggerBlobDownload(downloadedBlob, "meus-links-extensao-v3.zip");
+        addToast({
+          type: "success",
+          title: "Download iniciado!",
+          message: "O pacote meus-links-extensao-v3.zip foi baixado com sucesso."
+        });
+        return;
+      }
+
+      // Strategy 2: Client-side JSZip packaging (works 100% on Netlify, static hosts or iframes)
+      const zip = new JSZip();
+
+      const files = [
+        "manifest.json",
+        "popup.html",
+        "popup.css",
+        "popup.js",
+        "content.js",
+        "background.js"
+      ];
+
+      for (const filename of files) {
+        try {
+          const res = await fetch(`/extension/${filename}`);
+          if (res.ok) {
+            const text = await res.text();
+            zip.file(filename, text);
+          }
+        } catch {}
+      }
+
+      for (const icon of ["icon16.png", "icon48.png", "icon128.png"]) {
+        try {
+          const res = await fetch(`/extension/icons/${icon}`);
+          if (res.ok) {
+            const iconBlob = await res.blob();
+            zip.folder("icons")?.file(icon, iconBlob);
+          }
+        } catch {}
+      }
+
+      zip.file(
+        "COMO_INSTALAR.txt",
+        `=============================================================
+MEUS LINKS - EXTENSÃO OFICIAL PARA GOOGLE CHROME / CHROMIUM
+=============================================================
+
+Passos para instalar no Google Chrome, Brave, Edge ou Opera:
+
+1. Extraia o conteúdo deste arquivo ZIP em uma pasta segura do seu computador
+   (Ex: Documentos/MeusLinks-Extensao).
+
+2. Abra seu navegador Chrome e acesse na barra de endereços:
+   chrome://extensions
+
+3. No canto superior direito, ATIVE a chave:
+   "Modo do desenvolvedor" (Developer mode).
+
+4. No canto superior esquerdo, clique no botão:
+   "Carregar sem compactação" (Load unpacked).
+
+5. Selecione a pasta onde você descompactou os arquivos da extensão.
+
+6. Pronto! A extensão do Meus Links aparecerá na barra de ferramentas.
+   Fixe-a clicando no ícone de quebra-cabeça e depois no alfinete.
+
+7. Clique no ícone da extensão para fazer login com seu e-mail e senha.
+   A partir de agora, você pode salvar qualquer página com 1 clique ou usando o atalho Alt + S!
+=============================================================
+`
+      );
+
+      const generatedBlob = await zip.generateAsync({ type: "blob" });
+      triggerBlobDownload(generatedBlob, "meus-links-extensao-v3.zip");
+
+      addToast({
+        type: "success",
+        title: "Download concluído!",
+        message: "O pacote meus-links-extensao-v3.zip foi gerado e baixado."
+      });
+    } catch (err: any) {
+      console.error("Erro ao baixar zip da extensão:", err);
+      // Fallback: direct browser link
+      try {
+        const a = document.createElement("a");
+        a.href = "/meus-links-extensao-v3.zip";
+        a.download = "meus-links-extensao-v3.zip";
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch {
+        addToast({
+          type: "error",
+          title: "Falha ao baixar ZIP",
+          message: "Não foi possível baixar o arquivo. Tente novamente."
+        });
+      }
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const handleRunTestSave = async (e: React.FormEvent) => {
@@ -185,10 +332,15 @@ export const ExtensionGuideModal: React.FC = () => {
           <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 shrink-0">
             <button
               onClick={handleDownloadZip}
-              className="flex items-center justify-center gap-2 px-5 py-3 bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-bold text-xs sm:text-sm shadow-lg shadow-blue-500/25 active:scale-98 transition-all cursor-pointer"
+              disabled={isDownloading}
+              className="flex items-center justify-center gap-2 px-5 py-3 bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-bold text-xs sm:text-sm shadow-lg shadow-blue-500/25 active:scale-98 transition-all cursor-pointer disabled:opacity-75 disabled:cursor-wait"
             >
-              <Download className="w-4 h-4" />
-              <span>Baixar Pacote da Extensão (.zip)</span>
+              {isDownloading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span>{isDownloading ? "Baixando Pacote..." : "Baixar Pacote da Extensão (.zip)"}</span>
             </button>
 
             <button
@@ -317,6 +469,17 @@ export const ExtensionGuideModal: React.FC = () => {
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Clique no botão &ldquo;Baixar Pacote da Extensão (.zip)&rdquo; acima e extraia a pasta em um local permanente (ex: <code>Documentos/MeusLinks-Extensao</code>).
                 </p>
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-blue-500 dark:text-blue-400">
+                  <span>Não baixou automaticamente?</span>
+                  <button
+                    type="button"
+                    onClick={handleDownloadZip}
+                    disabled={isDownloading}
+                    className="font-semibold underline hover:text-blue-600 dark:hover:text-blue-300 cursor-pointer disabled:opacity-50"
+                  >
+                    Clique aqui para baixar novamente
+                  </button>
+                </div>
               </div>
             </div>
 

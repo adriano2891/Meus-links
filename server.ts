@@ -2185,10 +2185,18 @@ app.post("/api/extension/quick-save", async (req, res) => {
 });
 
 // 2. Extension ZIP Package Download Endpoint
-app.get("/api/extension/download", async (req, res) => {
+app.get(["/api/extension/download", "/meus-links-extensao-v3.zip"], async (req, res) => {
   try {
-    const extensionDir = path.join(process.cwd(), "extension");
-    if (!fs.existsSync(extensionDir)) {
+    const publicZip = path.join(process.cwd(), "public", "meus-links-extensao-v3.zip");
+    if (fs.existsSync(publicZip)) {
+      return res.download(publicZip, "meus-links-extensao-v3.zip");
+    }
+
+    const extensionDir = path.join(process.cwd(), "public", "extension");
+    const fallbackDir = path.join(process.cwd(), "extension");
+    const targetDir = fs.existsSync(extensionDir) ? extensionDir : fallbackDir;
+
+    if (!fs.existsSync(targetDir)) {
       return res.status(404).json({ error: "Arquivos da extensão não encontrados no servidor." });
     }
 
@@ -2209,7 +2217,7 @@ app.get("/api/extension/download", async (req, res) => {
       }
     }
 
-    addDirToZip(extensionDir, zip);
+    addDirToZip(targetDir, zip);
 
     // Add installation instructions README
     zip.file(
@@ -2248,6 +2256,11 @@ Passos para instalar no Google Chrome, Brave, Edge ou Opera:
       compression: "DEFLATE",
       compressionOptions: { level: 9 }
     });
+
+    // Save for future fast serving
+    try {
+      fs.writeFileSync(publicZip, buffer);
+    } catch {}
 
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", 'attachment; filename="meus-links-extensao-v3.zip"');
@@ -2344,6 +2357,9 @@ app.get("/api/public/share/:shareId", (req, res) => {
 
 // Setup Vite Development / Static Middleware
 async function startServer() {
+  const publicPath = path.join(process.cwd(), "public");
+  app.use(express.static(publicPath));
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
