@@ -1,8 +1,7 @@
 // Meus Links - Popup Script (Manifest V3)
-// Versão 1.0.6 - Sincronização em tempo real com App (Netlify, Cloud Run e Localhost)
-// Eliminação de categorias mock e integração nativa com Favoritos (Padrão)
+// Versão 1.0.7 - Sincronização persistente de categorias entre qualquer site e o App
 
-const DEFAULT_SERVER_URL = "https://ais-dev-m7nv3mtsexqu3z4xsx5pxl-372689701151.us-east1.run.app";
+const DEFAULT_SERVER_URL = "https://links-inteligentes.netlify.app";
 const DEFAULT_AUTH_TOKEN = "ml_live_y7bsjzh8kiihfpgj2vg";
 const DEFAULT_USER = {
   id: "user-demo-1",
@@ -10,9 +9,6 @@ const DEFAULT_USER = {
   name: "A. Silva",
   plan: "premium"
 };
-
-const DEFAULT_CATEGORIES = [];
-const DEFAULT_SUBCATEGORIES = [];
 
 // DOM Elements
 const loadingView = document.getElementById("loadingView");
@@ -65,7 +61,9 @@ let appState = {
   user: DEFAULT_USER,
   serverUrl: DEFAULT_SERVER_URL,
   categories: [],
-  subcategories: []
+  subcategories: [],
+  supabaseUrl: "",
+  supabaseKey: ""
 };
 
 // Storage helper with fallback
@@ -145,7 +143,7 @@ function showView(viewId) {
 }
 
 // -------------------------------------------------------------
-// Universal App Tab Finder (Supports Netlify, Vercel, Run.app, Localhost)
+// Universal App Tab Finder (Prioritizes Netlify and real App tabs)
 // -------------------------------------------------------------
 function isTabAppCandidate(tab) {
   if (!tab || !tab.url) return false;
@@ -172,20 +170,29 @@ function isTabAppCandidate(tab) {
 async function findAppTab() {
   if (typeof chrome === "undefined" || !chrome.tabs || !chrome.tabs.query) return null;
   try {
-    // 1. Check current active tab first (very common: user has App open right now!)
+    // 1. Check current active tab first
     const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (activeTabs && activeTabs[0] && isTabAppCandidate(activeTabs[0])) {
       return activeTabs[0];
     }
 
-    // 2. Query all tabs across all windows
+    // 2. Query all tabs across all windows, PRIORITIZING Netlify tabs
     const allTabs = await chrome.tabs.query({});
     for (const tab of allTabs) {
       if (!tab.url) continue;
       try {
         const u = new URL(tab.url);
+        if (u.hostname.includes("netlify.app") || (tab.title && tab.title.includes("Meus Links"))) {
+          return tab;
+        }
+      } catch {}
+    }
+
+    for (const tab of allTabs) {
+      if (!tab.url) continue;
+      try {
+        const u = new URL(tab.url);
         if (
-          u.hostname.includes("netlify.app") ||
           u.hostname.includes("run.app") ||
           u.hostname === "localhost" ||
           u.hostname === "127.0.0.1"
@@ -193,13 +200,6 @@ async function findAppTab() {
           return tab;
         }
       } catch {}
-    }
-
-    // Then check title match
-    for (const tab of allTabs) {
-      if (isTabAppCandidate(tab)) {
-        return tab;
-      }
     }
   } catch (err) {
     console.warn("findAppTab error:", err);
@@ -437,9 +437,8 @@ async function callAppApi(endpoint, options = {}) {
     });
   } catch (netErr) {
     if (endpoint.includes("quick-save")) {
-      throw new Error(
-        "Não foi possível conectar ao servidor. Mantenha a aba do App Meus Links aberta no navegador."
-      );
+      // Offline fallback: handled by caller
+      throw new Error("Conexão direta indisponível");
     }
     throw new Error("Não foi possível conectar ao servidor.");
   }
@@ -454,24 +453,7 @@ async function callAppApi(endpoint, options = {}) {
       data = null;
     }
   } else {
-    if (endpoint.includes("quick-save")) {
-      if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
-        try {
-          const newTab = await chrome.tabs.create({ url: appState.serverUrl, active: false });
-          await new Promise((r) => setTimeout(r, 2200));
-          const retryRes = await executeApiInTab(newTab.id, endpoint, options);
-          if (retryRes && retryRes.ok && retryRes.data) {
-            return retryRes.data;
-          }
-        } catch (retryErr) {
-          console.warn("Auto-tab retry error:", retryErr);
-        }
-      }
-      throw new Error(
-        "Por favor, mantenha a aba do App Meus Links aberta no navegador para salvar com segurança."
-      );
-    }
-    throw new Error(`Resposta do servidor requer autenticação na nuvem.`);
+    throw new Error(`Resposta do servidor não foi em formato JSON válido.`);
   }
 
   if (!resp.ok) {
@@ -512,6 +494,8 @@ async function detectAndSyncFromTabs(interactive = false) {
             try {
               const token = localStorage.getItem("meuslinks_token");
               const userRaw = localStorage.getItem("meuslinks_user");
+              const supaUrl = localStorage.getItem("meuslinks_supabase_url");
+              const supaKey = localStorage.getItem("meuslinks_supabase_anon_key") || localStorage.getItem("meuslinks_supabase_key");
 
               let categories = null;
               const catsRaw = localStorage.getItem("meuslinks_categories");
@@ -548,7 +532,9 @@ async function detectAndSyncFromTabs(interactive = false) {
                 user: userRaw ? JSON.parse(userRaw) : null,
                 origin: window.location.origin,
                 categories: categories || [],
-                subcategories: subcategories || []
+                subcategories: subcategories || [],
+                supabaseUrl: supaUrl || "",
+                supabaseKey: supaKey || ""
               };
             } catch {
               return null;
@@ -588,9 +574,15 @@ async function detectAndSyncFromTabs(interactive = false) {
       if (session.origin && !session.origin.includes("aistudio.google.com")) {
         appState.serverUrl = session.origin;
       }
-      if (Array.isArray(session.categories)) {
+      if (session.supabaseUrl) appState.supabaseUrl = session.supabaseUrl;
+      if (session.supabaseKey) appState.supabaseKey = session.supabaseKey;
+
+      if (Array.isArray(session.categories) && session.categories.length > 0) {
+        appState.categories = session.categories;
+      } else if (Array.isArray(session.categories) && appState.categories.length === 0) {
         appState.categories = session.categories;
       }
+
       if (Array.isArray(session.subcategories)) {
         appState.subcategories = session.subcategories;
       }
@@ -600,7 +592,9 @@ async function detectAndSyncFromTabs(interactive = false) {
         user: appState.user,
         serverUrl: appState.serverUrl,
         categories: appState.categories,
-        subcategories: appState.subcategories
+        subcategories: appState.subcategories,
+        supabaseUrl: appState.supabaseUrl,
+        supabaseKey: appState.supabaseKey
       });
 
       renderCategoriesAndSubcategories();
@@ -666,73 +660,13 @@ function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId 
 }
 
 // -------------------------------------------------------------
-// Silently refresh categories & subcategories from server/bridge
-// -------------------------------------------------------------
-async function refreshCategoriesSilently() {
-  try {
-    const authHeader = {
-      Authorization: `Bearer ${appState.authToken}`,
-      "x-api-token": appState.authToken
-    };
-
-    let categories = await callAppApi("/api/categories", { headers: authHeader }).catch(() => null);
-    let subcategories = await callAppApi("/api/subcategories", { headers: authHeader }).catch(() => null);
-
-    if (!Array.isArray(categories)) {
-      const fullData = await callAppApi("/api/data", { headers: authHeader }).catch(() => null);
-      if (fullData) {
-        if (Array.isArray(fullData.categories)) categories = fullData.categories;
-        if (Array.isArray(fullData.subcategories)) subcategories = fullData.subcategories;
-      }
-    }
-
-    // Secondary fallback: Tab message to open content script
-    if (!Array.isArray(categories)) {
-      const appTab = await findAppTab();
-      if (appTab && appTab.id && typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
-        const catRes = await new Promise((res) => {
-          chrome.tabs.sendMessage(appTab.id, { action: "GET_CATEGORIES" }, (r) => {
-            if (chrome.runtime.lastError) res(null);
-            else res(r);
-          });
-        });
-        if (catRes && Array.isArray(catRes.categories)) {
-          categories = catRes.categories;
-          subcategories = catRes.subcategories || [];
-        }
-      }
-    }
-
-    let updated = false;
-    if (Array.isArray(categories)) {
-      appState.categories = categories;
-      updated = true;
-    }
-    if (Array.isArray(subcategories)) {
-      appState.subcategories = subcategories;
-      updated = true;
-    }
-
-    if (updated) {
-      storage.set({
-        categories: appState.categories,
-        subcategories: appState.subcategories
-      });
-      renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
-    }
-  } catch (err) {
-    console.warn("Silent category refresh warning:", err);
-  }
-}
-
-// -------------------------------------------------------------
 // Live Listener for Category & Subcategory updates from App Bridge
 // -------------------------------------------------------------
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.action === "CATEGORIES_UPDATED") {
       let changed = false;
-      if (Array.isArray(msg.categories)) {
+      if (Array.isArray(msg.categories) && msg.categories.length > 0) {
         appState.categories = msg.categories;
         changed = true;
       }
@@ -779,14 +713,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (loginEmail) loginEmail.value = "a.a.silva2891@gmail.com";
   if (loginPassword) loginPassword.value = "xs54bg21";
 
-  // Pre-populate dropdowns with defaults
-  renderCategoriesAndSubcategories();
-
   // Show Save Link view immediately by default
   showView("save");
 
-  // Read saved settings from storage
-  storage.get(["authToken", "user", "serverUrl", "categories", "subcategories"], async (data) => {
+  // Read saved settings directly from persistent storage (Available on ANY website!)
+  storage.get(["authToken", "user", "serverUrl", "categories", "subcategories", "supabaseUrl", "supabaseKey"], async (data) => {
     if (data.serverUrl) {
       appState.serverUrl = data.serverUrl.replace(/\/+$/, "");
     }
@@ -795,39 +726,36 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     // Restore cached categories and subcategories if present
-    if (Array.isArray(data.categories)) {
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      appState.categories = data.categories;
+    } else if (Array.isArray(data.categories) && appState.categories.length === 0) {
       appState.categories = data.categories;
     }
-    if (Array.isArray(data.subcategories)) {
+
+    if (Array.isArray(data.subcategories) && data.subcategories.length > 0) {
+      appState.subcategories = data.subcategories;
+    } else if (Array.isArray(data.subcategories) && appState.subcategories.length === 0) {
       appState.subcategories = data.subcategories;
     }
 
     // Always keep active credentials
     appState.authToken = data.authToken || DEFAULT_AUTH_TOKEN;
     appState.user = data.user || DEFAULT_USER;
-
-    // Permanently guarantee credentials in storage
-    storage.set({
-      authToken: appState.authToken,
-      user: appState.user,
-      serverUrl: appState.serverUrl,
-      categories: appState.categories,
-      subcategories: appState.subcategories
-    });
+    if (data.supabaseUrl) appState.supabaseUrl = data.supabaseUrl;
+    if (data.supabaseKey) appState.supabaseKey = data.supabaseKey;
 
     if (headerUserEmail) {
       headerUserEmail.textContent = appState.user.name || appState.user.email;
     }
 
-    // Re-render dropdowns with restored storage data
+    // Re-render dropdowns with restored storage data immediately
     renderCategoriesAndSubcategories();
 
     // Capture active tab info
     await captureActiveTab();
 
-    // Check if an open tab can update categories
+    // Check if an open App tab can provide fresh updates (without overwriting if not found)
     await detectAndSyncFromTabs(false);
-    refreshCategoriesSilently();
   });
 
   // Toggle server URL configuration
@@ -1078,7 +1006,7 @@ function handleSubcategoryChange() {
   }
 }
 
-// Save Link Handler
+// Save Link Handler - Resilient across ANY website, even with App closed
 async function handleSaveLink(e) {
   e.preventDefault();
   if (saveError) saveError.style.display = "none";
@@ -1115,47 +1043,79 @@ async function handleSaveLink(e) {
 
   setButtonLoading(saveLinkBtn, true, "Salvando no App...");
 
+  const newLinkObject = {
+    id: "link-" + Date.now(),
+    userId: appState.user?.id || "user-demo-1",
+    url,
+    title: title || url,
+    categoryId: isFavCategory ? undefined : categoryId,
+    subcategoryId: isFavCategory ? undefined : subcategoryId,
+    tags,
+    isFavorite: isFavCategory ? true : (isFavorite ? isFavorite.checked : false),
+    isReadLater: isReadLater ? isReadLater.checked : false,
+    favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url)}&sz=128`,
+    source: "extension",
+    createdAt: new Date().toISOString()
+  };
+
   try {
-    const payload = {
-      url,
-      title: title || url,
-      categoryId: isFavCategory ? "favorites" : categoryId,
-      subcategoryId: isFavCategory ? undefined : subcategoryId,
-      tags,
-      isFavorite: isFavCategory ? true : (isFavorite ? isFavorite.checked : false),
-      isReadLater: isReadLater ? isReadLater.checked : false,
-      source: "extension"
-    };
+    let savedSuccessfully = false;
 
-    const result = await callAppApi("/api/extension/quick-save", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${appState.authToken}`,
-        "x-api-token": appState.authToken
-      },
-      body: JSON.stringify(payload)
-    });
+    // 1. Attempt 1: Execute in open App tab if available
+    const appTab = await findAppTab();
+    if (appTab && appTab.id) {
+      const payload = {
+        url,
+        title: title || url,
+        categoryId: isFavCategory ? "favorites" : categoryId,
+        subcategoryId: isFavCategory ? undefined : subcategoryId,
+        tags,
+        isFavorite: isFavCategory ? true : (isFavorite ? isFavorite.checked : false),
+        isReadLater: isReadLater ? isReadLater.checked : false,
+        source: "extension"
+      };
 
-    if (!result || !result.success) {
-      throw new Error((result && result.error) || "Erro ao salvar o link no App.");
+      const result = await callAppApi("/api/extension/quick-save", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${appState.authToken}`,
+          "x-api-token": appState.authToken
+        },
+        body: JSON.stringify(payload)
+      }).catch(() => null);
+
+      if (result && result.success) {
+        savedSuccessfully = true;
+      }
     }
 
-    // Real-time synchronization: Notify open App tab to refresh its state immediately
-    try {
-      const openAppTab = await findAppTab();
-      if (openAppTab && openAppTab.id && typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
-        chrome.tabs.sendMessage(
-          openAppTab.id,
-          {
-            action: "NOTIFY_LINK_SAVED",
-            link: result.link
-          },
-          () => {}
-        );
+    // 2. Attempt 2: If App tab was not open, store link in pending_links to merge instantly when App opens
+    if (!savedSuccessfully) {
+      await new Promise((resolve) => {
+        storage.get(["pending_links"], (res) => {
+          const pending = Array.isArray(res.pending_links) ? res.pending_links : [];
+          pending.unshift(newLinkObject);
+          storage.set({ pending_links: pending }, resolve);
+        });
+      });
+      savedSuccessfully = true;
+
+      // 3. Attempt 3: Direct Supabase sync if configured
+      if (appState.supabaseUrl && appState.supabaseKey) {
+        try {
+          fetch(`${appState.supabaseUrl}/rest/v1/links`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: appState.supabaseKey,
+              Authorization: `Bearer ${appState.supabaseKey}`,
+              Prefer: "resolution=merge-duplicates"
+            },
+            body: JSON.stringify(newLinkObject)
+          }).catch(() => {});
+        } catch {}
       }
-    } catch (notifyErr) {
-      console.warn("Could not dispatch real-time link notification:", notifyErr);
     }
 
     // Success State

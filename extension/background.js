@@ -4,7 +4,7 @@ chrome.runtime.onInstalled.addListener((details) => {
   console.log('[Meus Links] Extensão instalada com sucesso! Razão:', details.reason);
   chrome.storage.local.get(['serverUrl', 'authToken', 'user'], (res) => {
     chrome.storage.local.set({
-      serverUrl: res.serverUrl || 'https://ais-dev-m7nv3mtsexqu3z4xsx5pxl-372689701151.us-east1.run.app',
+      serverUrl: res.serverUrl || 'https://links-inteligentes.netlify.app',
       authToken: res.authToken || 'ml_live_y7bsjzh8kiihfpgj2vg',
       user: res.user || {
         id: 'user-demo-1',
@@ -16,8 +16,20 @@ chrome.runtime.onInstalled.addListener((details) => {
   });
 });
 
-// Listener for session sync messages from content scripts
+// Listener for session & category sync messages from content scripts and web pages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'CATEGORIES_UPDATED') {
+    if (Array.isArray(request.categories) && request.categories.length > 0) {
+      chrome.storage.local.set({
+        categories: request.categories,
+        subcategories: request.subcategories || [],
+        lastSync: Date.now()
+      });
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (request.action === 'SESSION_SYNCED') {
     if (chrome.action && chrome.action.setBadgeText) {
       chrome.action.setBadgeText({ text: '✓' });

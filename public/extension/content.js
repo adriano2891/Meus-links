@@ -1,5 +1,5 @@
-// Meus Links - Content Script Bridge
-// Executado nas abas do Meus Links para sincronização automática de sessão, categorias e subcategorias.
+// Meus Links - Content Script Bridge (Manifest V3)
+// Executado nas abas do Meus Links para sincronização automática contínua de sessão, categorias e subcategorias.
 
 (function () {
   const isExtensionContext = typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id;
@@ -90,19 +90,24 @@
     const categories = customCats !== null && Array.isArray(customCats) ? customCats : getLocalCategories();
     const subcategories = customSubs !== null && Array.isArray(customSubs) ? customSubs : getLocalSubcategories();
 
+    const supaUrl = localStorage.getItem("meuslinks_supabase_url");
+    const supaKey = localStorage.getItem("meuslinks_supabase_anon_key") || localStorage.getItem("meuslinks_supabase_key");
+
     const dataToSave = {
       categories: categories || [],
-      subcategories: subcategories || []
+      subcategories: subcategories || [],
+      lastSyncedAt: Date.now()
     };
     if (token) {
       dataToSave.authToken = token;
       dataToSave.user = user || { id: token, email: "a.a.silva2891@gmail.com", name: "Usuário Conectado" };
       dataToSave.serverUrl = window.location.origin;
     }
+    if (supaUrl) dataToSave.supabaseUrl = supaUrl;
+    if (supaKey) dataToSave.supabaseKey = supaKey;
 
     try {
       chrome.storage.local.set(dataToSave, () => {
-        // Notifica o popup / background da extensão em tempo real
         try {
           chrome.runtime.sendMessage({
             action: "CATEGORIES_UPDATED",
@@ -118,8 +123,66 @@
     }
   }
 
+  // Sincroniza links que possam ter sido salvos na extensão enquanto o App estava fechado
+  function processPendingLinks() {
+    try {
+      chrome.storage.local.get(["pending_links"], (res) => {
+        if (res && Array.isArray(res.pending_links) && res.pending_links.length > 0) {
+          const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
+          let db;
+          try {
+            db = JSON.parse(rawOffline);
+          } catch {
+            db = {};
+          }
+          if (!Array.isArray(db.links)) db.links = [];
+
+          let hasNew = false;
+          res.pending_links.forEach((link) => {
+            if (!db.links.some((l) => l.url === link.url || l.id === link.id)) {
+              db.links.unshift(link);
+              hasNew = true;
+              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link } }));
+              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link }, "*");
+            }
+          });
+
+          if (hasNew) {
+            localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+          }
+          chrome.storage.local.remove(["pending_links"]);
+        }
+      });
+    } catch (e) {
+      console.warn("Could not process pending links:", e);
+    }
+  }
+
   // Executa verificação inicial
   syncWithExtension();
+  processPendingLinks();
+
+  // Verificação contínua periódica a cada 2 segundos para garantir sincronização instantânea
+  setInterval(() => {
+    syncWithExtension();
+  }, 2000);
+
+  setInterval(() => {
+    processPendingLinks();
+  }, 4000);
+
+  // Monitora foco e visibilidade
+  window.addEventListener("focus", () => {
+    syncWithExtension();
+    processPendingLinks();
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      syncWithExtension();
+      processPendingLinks();
+    }
+  });
 
   // Monitora eventos disparados em tempo real pelo React App
   window.addEventListener("meuslinks_categories_updated", (e) => {
@@ -239,7 +302,7 @@
               // Tenta persistir no Supabase do cliente se configurado
               try {
                 const supaUrl = localStorage.getItem("meuslinks_supabase_url");
-                const supaKey = localStorage.getItem("meuslinks_supabase_key");
+                const supaKey = localStorage.getItem("meuslinks_supabase_anon_key") || localStorage.getItem("meuslinks_supabase_key");
                 if (supaUrl && supaKey) {
                   fetch(`${supaUrl}/rest/v1/links`, {
                     method: "POST",
