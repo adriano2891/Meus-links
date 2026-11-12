@@ -5,6 +5,8 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  query,
+  where,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -62,6 +64,15 @@ function sanitizeTags(tags: unknown): string[] {
     .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
     .slice(0, 20)
     .map((t) => t.trim().slice(0, 50));
+}
+
+function safeNum(val: unknown, fallback = 0): number {
+  if (typeof val === "number" && Number.isFinite(val)) return val;
+  if (typeof val === "string" && val.trim() !== "") {
+    const parsed = Number(val);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 function toIsoString(val: unknown): string {
@@ -204,7 +215,7 @@ export async function upsertFirestoreCollection(
         color: clampOptStr(col.color || "#8B5CF6", 32),
         icon: clampOptStr(col.icon || "FolderKanban", 64),
         isPrivate: Boolean(col.isPrivate),
-        order: typeof col.order === "number" ? col.order : 0,
+        order: safeNum(col.order, 0),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -231,7 +242,7 @@ export async function upsertFirestoreCollection(
     if (col.color !== undefined) updatePayload.color = clampOptStr(col.color, 32);
     if (col.icon !== undefined) updatePayload.icon = clampOptStr(col.icon, 64);
     if (col.isPrivate !== undefined) updatePayload.isPrivate = Boolean(col.isPrivate);
-    if (col.order !== undefined) updatePayload.order = col.order;
+    if (col.order !== undefined) updatePayload.order = safeNum(col.order, 0);
 
     await updateDoc(ref, updatePayload);
     const updatedSnap = await getDoc(ref);
@@ -281,7 +292,7 @@ export async function upsertFirestoreCategory(
         icon: clampOptStr(cat.icon || "Folder", 64),
         isPrivate: Boolean(cat.isPrivate),
         password: clampOptStr(cat.password, 128),
-        order: typeof cat.order === "number" ? cat.order : 0,
+        order: safeNum(cat.order, 0),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -316,7 +327,7 @@ export async function upsertFirestoreCategory(
     if (cat.icon !== undefined) updatePayload.icon = clampOptStr(cat.icon, 64);
     if (cat.isPrivate !== undefined) updatePayload.isPrivate = Boolean(cat.isPrivate);
     if (cat.password !== undefined) updatePayload.password = clampOptStr(cat.password, 128);
-    if (cat.order !== undefined) updatePayload.order = cat.order;
+    if (cat.order !== undefined) updatePayload.order = safeNum(cat.order, 0);
 
     await updateDoc(ref, updatePayload);
     const updatedSnap = await getDoc(ref);
@@ -347,22 +358,22 @@ export async function upsertFirestoreSubcategory(
 ): Promise<SubcategoryItem> {
   const safeUid = sanitizeFirestoreId(uid, "user");
   const id = sanitizeFirestoreId(sub.id, "sub");
-  const categoryId = sanitizeFirestoreId(sub.categoryId, "cat");
   const path = `users/${safeUid}/subcategories/${id}`;
   const ref = doc(db, "users", safeUid, "subcategories", id);
 
   try {
-    // Ensure parent category exists in Firestore (required by rules `exists(...)`)
-    const parentCatRef = doc(db, "users", safeUid, "categories", categoryId);
-    const parentSnap = await getDoc(parentCatRef);
-    if (!parentSnap.exists()) {
-      await upsertFirestoreCategory(safeUid, { id: categoryId, name: "Categoria" }, true);
-    }
-
     const snap = isNew ? null : await getDoc(ref);
     const existsInDb = snap?.exists() ?? false;
+    const categoryId = sanitizeFirestoreId(sub.categoryId ?? snap?.data()?.categoryId, "cat");
 
     if (!existsInDb) {
+      // Ensure parent category exists in Firestore (required by rules `exists(...)`)
+      const parentCatRef = doc(db, "users", safeUid, "categories", categoryId);
+      const parentSnap = await getDoc(parentCatRef);
+      if (!parentSnap.exists()) {
+        await upsertFirestoreCategory(safeUid, { id: categoryId, name: "Categoria" }, true);
+      }
+
       const payload = {
         id,
         userId: safeUid,
@@ -371,7 +382,7 @@ export async function upsertFirestoreSubcategory(
         color: clampOptStr(sub.color || "#3B82F6", 32),
         icon: clampOptStr(sub.icon || "Folder", 64),
         url: clampOptStr(sub.url, 2048),
-        order: typeof sub.order === "number" ? sub.order : 0,
+        order: safeNum(sub.order, 0),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -398,7 +409,7 @@ export async function upsertFirestoreSubcategory(
     if (sub.color !== undefined) updatePayload.color = clampOptStr(sub.color, 32);
     if (sub.icon !== undefined) updatePayload.icon = clampOptStr(sub.icon, 64);
     if (sub.url !== undefined) updatePayload.url = clampOptStr(sub.url, 2048);
-    if (sub.order !== undefined) updatePayload.order = sub.order;
+    if (sub.order !== undefined) updatePayload.order = safeNum(sub.order, 0);
 
     await updateDoc(ref, updatePayload);
     const updatedSnap = await getDoc(ref);
@@ -458,16 +469,16 @@ export async function upsertFirestoreLink(
         noteId: link.noteId ? sanitizeFirestoreId(link.noteId, "note") : null,
         reviewDate: clampOptStr(link.reviewDate, 64),
         isShortcut,
-        shortcutOrder: typeof link.shortcutOrder === "number" ? link.shortcutOrder : 0,
+        shortcutOrder: safeNum(link.shortcutOrder, 0),
         isFavorite: Boolean(link.isFavorite),
         isReadLater: Boolean(link.isReadLater),
         isArchived: Boolean(link.isArchived),
         isPrivate: Boolean(link.isPrivate),
         password: clampOptStr(link.password, 128),
-        clickCount: typeof link.clickCount === "number" ? link.clickCount : 0,
+        clickCount: safeNum(link.clickCount, 0),
         lastAccessedAt: clampOptStr(link.lastAccessedAt, 64),
         isBroken: Boolean(link.isBroken),
-        order: typeof link.order === "number" ? link.order : 0,
+        order: safeNum(link.order, 0),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -532,16 +543,16 @@ export async function upsertFirestoreLink(
     if (link.previewImage !== undefined) updatePayload.previewImage = clampOptStr(link.previewImage, 2048);
     if (link.noteId !== undefined) updatePayload.noteId = link.noteId ? sanitizeFirestoreId(link.noteId, "note") : null;
     if (link.reviewDate !== undefined) updatePayload.reviewDate = clampOptStr(link.reviewDate, 64);
-    if (link.shortcutOrder !== undefined) updatePayload.shortcutOrder = link.shortcutOrder;
+    if (link.shortcutOrder !== undefined) updatePayload.shortcutOrder = safeNum(link.shortcutOrder, 0);
     if (link.isFavorite !== undefined) updatePayload.isFavorite = Boolean(link.isFavorite);
     if (link.isReadLater !== undefined) updatePayload.isReadLater = Boolean(link.isReadLater);
     if (link.isArchived !== undefined) updatePayload.isArchived = Boolean(link.isArchived);
     if (link.isPrivate !== undefined) updatePayload.isPrivate = Boolean(link.isPrivate);
     if (link.password !== undefined) updatePayload.password = clampOptStr(link.password, 128);
-    if (link.clickCount !== undefined) updatePayload.clickCount = link.clickCount;
+    if (link.clickCount !== undefined) updatePayload.clickCount = safeNum(link.clickCount, 0);
     if (link.lastAccessedAt !== undefined) updatePayload.lastAccessedAt = clampOptStr(link.lastAccessedAt, 64);
     if (link.isBroken !== undefined) updatePayload.isBroken = Boolean(link.isBroken);
-    if (link.order !== undefined) updatePayload.order = link.order;
+    if (link.order !== undefined) updatePayload.order = safeNum(link.order, 0);
 
     await updateDoc(ref, updatePayload);
     const updatedSnap = await getDoc(ref);
@@ -878,7 +889,7 @@ export function subscribeToUserCloudData(
   const colsPath = `users/${safeUid}/collections`;
   unsubs.push(
     onSnapshot(
-      collection(db, "users", safeUid, "collections"),
+      query(collection(db, "users", safeUid, "collections"), where("userId", "==", safeUid)),
       (snap) => {
         const items = snap.docs
           .map((d) => mapDocToCollection(d.data()))
@@ -893,7 +904,7 @@ export function subscribeToUserCloudData(
   const catsPath = `users/${safeUid}/categories`;
   unsubs.push(
     onSnapshot(
-      collection(db, "users", safeUid, "categories"),
+      query(collection(db, "users", safeUid, "categories"), where("userId", "==", safeUid)),
       (snap) => {
         const items = snap.docs
           .map((d) => mapDocToCategory(d.data()))
@@ -908,7 +919,7 @@ export function subscribeToUserCloudData(
   const subsPath = `users/${safeUid}/subcategories`;
   unsubs.push(
     onSnapshot(
-      collection(db, "users", safeUid, "subcategories"),
+      query(collection(db, "users", safeUid, "subcategories"), where("userId", "==", safeUid)),
       (snap) => {
         const items = snap.docs
           .map((d) => mapDocToSubcategory(d.data()))
@@ -923,7 +934,7 @@ export function subscribeToUserCloudData(
   const linksPath = `users/${safeUid}/links`;
   unsubs.push(
     onSnapshot(
-      collection(db, "users", safeUid, "links"),
+      query(collection(db, "users", safeUid, "links"), where("userId", "==", safeUid)),
       (snap) => {
         const all = snap.docs.map((d) => mapDocToLink(d.data()));
         const active = all.filter((l) => !l.isArchived);
@@ -938,7 +949,7 @@ export function subscribeToUserCloudData(
   const notesPath = `users/${safeUid}/notes`;
   unsubs.push(
     onSnapshot(
-      collection(db, "users", safeUid, "notes"),
+      query(collection(db, "users", safeUid, "notes"), where("userId", "==", safeUid)),
       (snap) => {
         const items = snap.docs
           .map((d) => mapDocToNote(d.data()))
@@ -953,7 +964,7 @@ export function subscribeToUserCloudData(
   const trashPath = `users/${safeUid}/trash`;
   unsubs.push(
     onSnapshot(
-      collection(db, "users", safeUid, "trash"),
+      query(collection(db, "users", safeUid, "trash"), where("userId", "==", safeUid)),
       (snap) => {
         const items = snap.docs
           .map((d) => mapDocToTrashItem(d.data()))
@@ -1017,11 +1028,11 @@ export async function migrateLocalDataToFirestore(firebaseUser: FirebaseUser): P
   // Fetch current Firestore documents to avoid overwriting or duplicating cloud items
   const [existingColsSnap, existingCatsSnap, existingSubsSnap, existingLinksSnap, existingNotesSnap] =
     await Promise.all([
-      getDocs(collection(db, "users", safeUid, "collections")),
-      getDocs(collection(db, "users", safeUid, "categories")),
-      getDocs(collection(db, "users", safeUid, "subcategories")),
-      getDocs(collection(db, "users", safeUid, "links")),
-      getDocs(collection(db, "users", safeUid, "notes"))
+      getDocs(query(collection(db, "users", safeUid, "collections"), where("userId", "==", safeUid))),
+      getDocs(query(collection(db, "users", safeUid, "categories"), where("userId", "==", safeUid))),
+      getDocs(query(collection(db, "users", safeUid, "subcategories"), where("userId", "==", safeUid))),
+      getDocs(query(collection(db, "users", safeUid, "links"), where("userId", "==", safeUid))),
+      getDocs(query(collection(db, "users", safeUid, "notes"), where("userId", "==", safeUid)))
     ]).catch((error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${safeUid}`);
       throw error;
