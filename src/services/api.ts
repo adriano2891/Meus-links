@@ -257,7 +257,7 @@ function getOfflineDb(): OfflineStorageSchema {
   return DEFAULT_OFFLINE_DB;
 }
 
-function saveOfflineDb(db: OfflineStorageSchema) {
+function saveOfflineDb(db: OfflineStorageSchema, markUnsynced = true) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
@@ -267,9 +267,41 @@ function saveOfflineDb(db: OfflineStorageSchema) {
     if (Array.isArray(db.subcategories)) {
       localStorage.setItem("meuslinks_subcategories", JSON.stringify(db.subcategories));
     }
+    if (markUnsynced) {
+      localStorage.setItem("meuslinks_has_unsynced_local_data", "true");
+    }
   } catch (err) {
     console.warn("Could not save offline db:", err);
   }
+}
+
+export function syncCloudCacheToLocalStorage(data: {
+  user?: UserProfile | null;
+  collections: CollectionItem[];
+  categories: CategoryItem[];
+  subcategories: SubcategoryItem[];
+  links: LinkItem[];
+  archivedLinks?: LinkItem[];
+  notes: NoteItem[];
+  trash?: TrashItem[];
+}) {
+  if (typeof window === "undefined") return;
+  const current = getOfflineDb();
+  saveOfflineDb(
+    {
+      user: data.user || current.user,
+      collections: data.collections,
+      categories: data.categories,
+      subcategories: data.subcategories,
+      links: data.links,
+      archivedLinks: data.archivedLinks || [],
+      notes: data.notes,
+      trash: data.trash || [],
+      auditLogs: current.auditLogs || [],
+      backups: current.backups || []
+    },
+    false
+  );
 }
 
 // Safely execute API calls or trigger fallback
@@ -415,7 +447,7 @@ export const api = {
           trash: data.trash || [],
           auditLogs: data.auditLogs || [],
           backups: data.backups || []
-        });
+        }, false);
 
         return mergedResult;
       }
@@ -454,7 +486,7 @@ export const api = {
           auditLogs: offline.auditLogs,
           backups: offline.backups
         };
-        saveOfflineDb(merged);
+        saveOfflineDb(merged, false);
         return merged;
       }
     } catch (supaErr) {

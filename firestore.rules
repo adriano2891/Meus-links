@@ -1,0 +1,367 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================
+    // Global Hardened Helper Primitives
+    // =========================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOptString(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptBool(data, field) {
+      return !(field in data) || data[field] == null || data[field] is bool;
+    }
+
+    function isOptNumber(data, field) {
+      return !(field in data) || data[field] == null || (data[field] is int || data[field] is float);
+    }
+
+    function isValidTags(data) {
+      return data.tags is list
+        && data.tags.size() <= 20
+        && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 50));
+    }
+
+    function userDocExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // =========================================================
+    // Entity Validation Blueprints
+    // =========================================================
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'email', 'name', 'plan', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'email', 'name', 'avatar', 'plan', 'apiToken', 'theme', 'viewMode', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == userId
+        && data.userId == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 320
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && isOptString(data, 'avatar', 2048)
+        && data.plan is string && data.plan in ['free', 'premium']
+        && isOptString(data, 'apiToken', 128)
+        && (!( 'theme' in data ) || data.theme == null || (data.theme is string && data.theme in ['light', 'dark', 'system']))
+        && (!( 'viewMode' in data ) || data.viewMode == null || (data.viewMode is string && data.viewMode in ['grid', 'list', 'compact']))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCollection(data, userId, collectionId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'order', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'name', 'description', 'color', 'icon', 'isPrivate', 'order', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == collectionId
+        && data.userId == request.auth.uid
+        && userId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && isOptString(data, 'description', 500)
+        && isOptString(data, 'color', 32)
+        && isOptString(data, 'icon', 64)
+        && isOptBool(data, 'isPrivate')
+        && (data.order is int || data.order is float)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCategory(data, userId, categoryId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'order', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'collectionId', 'name', 'description', 'coverImage', 'color', 'icon', 'isPrivate', 'password', 'order', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == categoryId
+        && data.userId == request.auth.uid
+        && userId == request.auth.uid
+        && isOptString(data, 'collectionId', 128)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && isOptString(data, 'description', 500)
+        && isOptString(data, 'coverImage', 2048)
+        && isOptString(data, 'color', 32)
+        && isOptString(data, 'icon', 64)
+        && isOptBool(data, 'isPrivate')
+        && isOptString(data, 'password', 128)
+        && (data.order is int || data.order is float)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSubcategory(data, userId, subcategoryId) {
+      return data.keys().hasAll(['id', 'userId', 'categoryId', 'name', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'categoryId', 'name', 'color', 'icon', 'url', 'order', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == subcategoryId
+        && data.userId == request.auth.uid
+        && userId == request.auth.uid
+        && isValidId(data.categoryId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && isOptString(data, 'color', 32)
+        && isOptString(data, 'icon', 64)
+        && isOptString(data, 'url', 2048)
+        && isOptNumber(data, 'order')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLink(data, userId, linkId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'url', 'tags', 'isShortcut', 'isFavorite', 'isReadLater', 'isArchived', 'clickCount', 'order', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'userId', 'categoryId', 'subcategoryId', 'collectionId',
+          'title', 'url', 'description', 'tags', 'favicon', 'previewImage',
+          'noteId', 'reviewDate', 'isShortcut', 'shortcutOrder',
+          'isFavorite', 'isReadLater', 'isArchived', 'isPrivate', 'password',
+          'clickCount', 'lastAccessedAt', 'isBroken', 'order', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == linkId
+        && data.userId == request.auth.uid
+        && userId == request.auth.uid
+        && isOptString(data, 'categoryId', 128)
+        && isOptString(data, 'subcategoryId', 128)
+        && isOptString(data, 'collectionId', 128)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 300
+        && data.url is string && data.url.size() >= 1 && data.url.size() <= 2048
+        && isOptString(data, 'description', 1000)
+        && isValidTags(data)
+        && isOptString(data, 'favicon', 2048)
+        && isOptString(data, 'previewImage', 2048)
+        && isOptString(data, 'noteId', 128)
+        && isOptString(data, 'reviewDate', 64)
+        && data.isShortcut is bool
+        && isOptNumber(data, 'shortcutOrder')
+        && data.isFavorite is bool
+        && data.isReadLater is bool
+        && data.isArchived is bool
+        && isOptBool(data, 'isPrivate')
+        && isOptString(data, 'password', 128)
+        && (data.clickCount is int || data.clickCount is float)
+        && isOptString(data, 'lastAccessedAt', 64)
+        && isOptBool(data, 'isBroken')
+        && (data.order is int || data.order is float)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNote(data, userId, noteId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'content', 'isPinned', 'tags', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'content', 'isPinned', 'tags', 'categoryId', 'collectionId', 'linkId', 'isPrivate', 'reminderDate', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == noteId
+        && data.userId == request.auth.uid
+        && userId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 250
+        && data.content is string && data.content.size() <= 20000
+        && data.isPinned is bool
+        && isValidTags(data)
+        && isOptString(data, 'categoryId', 128)
+        && isOptString(data, 'collectionId', 128)
+        && isOptString(data, 'linkId', 128)
+        && isOptBool(data, 'isPrivate')
+        && isOptString(data, 'reminderDate', 64)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTrashItem(data, userId, trashId) {
+      return data.keys().hasAll(['id', 'userId', 'itemType', 'entityId', 'title', 'deletedAt', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'itemType', 'entityId', 'title', 'originalData', 'deletedAt', 'expiresAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == trashId
+        && data.userId == request.auth.uid
+        && userId == request.auth.uid
+        && data.itemType is string && data.itemType in ['link', 'note', 'category', 'collection']
+        && data.entityId is string && data.entityId.size() >= 1 && data.entityId.size() <= 128
+        && data.title is string && data.title.size() <= 300
+        && (!( 'originalData' in data ) || data.originalData == null || data.originalData is map)
+        && data.deletedAt is string && data.deletedAt.size() <= 64
+        && data.expiresAt is string && data.expiresAt.size() <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // =========================================================
+    // User Root & Subcollections
+    // =========================================================
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar', 'theme', 'viewMode', 'apiToken', 'updatedAt']);
+      allow delete: if false;
+
+      match /collections/{collectionId} {
+        allow get: if isValidId(collectionId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(collectionId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidCollection(incoming(), userId, collectionId)
+          && userDocExists(userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(collectionId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidCollection(incoming(), userId, collectionId)
+          && incoming().userId == existing().userId
+          && incoming().id == existing().id
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'color', 'icon', 'isPrivate', 'order', 'updatedAt']);
+        allow delete: if isValidId(collectionId) && isVerifiedUser() && isOwner(userId);
+      }
+
+      match /categories/{categoryId} {
+        allow get: if isValidId(categoryId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(categoryId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidCategory(incoming(), userId, categoryId)
+          && userDocExists(userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(categoryId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidCategory(incoming(), userId, categoryId)
+          && incoming().userId == existing().userId
+          && incoming().id == existing().id
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['collectionId', 'name', 'description', 'coverImage', 'color', 'icon', 'isPrivate', 'password', 'order', 'updatedAt']);
+        allow delete: if isValidId(categoryId) && isVerifiedUser() && isOwner(userId);
+      }
+
+      match /subcategories/{subcategoryId} {
+        allow get: if isValidId(subcategoryId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(subcategoryId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidSubcategory(incoming(), userId, subcategoryId)
+          && userDocExists(userId)
+          && exists(/databases/$(database)/documents/users/$(userId)/categories/$(incoming().categoryId))
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(subcategoryId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidSubcategory(incoming(), userId, subcategoryId)
+          && incoming().userId == existing().userId
+          && incoming().id == existing().id
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['categoryId', 'name', 'color', 'icon', 'url', 'order', 'updatedAt']);
+        allow delete: if isValidId(subcategoryId) && isVerifiedUser() && isOwner(userId);
+      }
+
+      match /links/{linkId} {
+        allow get: if isValidId(linkId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(linkId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidLink(incoming(), userId, linkId)
+          && userDocExists(userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(linkId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidLink(incoming(), userId, linkId)
+          && incoming().userId == existing().userId
+          && incoming().id == existing().id
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['clickCount', 'lastAccessedAt', 'isReadLater', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['shortcutOrder', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'categoryId', 'subcategoryId', 'collectionId',
+              'title', 'url', 'description', 'tags', 'favicon', 'previewImage',
+              'noteId', 'reviewDate', 'isShortcut', 'shortcutOrder',
+              'isFavorite', 'isReadLater', 'isArchived', 'isPrivate', 'password',
+              'clickCount', 'lastAccessedAt', 'isBroken', 'order', 'updatedAt'
+            ])
+          );
+        allow delete: if isValidId(linkId) && isVerifiedUser() && isOwner(userId);
+      }
+
+      match /notes/{noteId} {
+        allow get: if isValidId(noteId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(noteId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidNote(incoming(), userId, noteId)
+          && userDocExists(userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(noteId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidNote(incoming(), userId, noteId)
+          && incoming().userId == existing().userId
+          && incoming().id == existing().id
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'isPinned', 'tags', 'categoryId', 'collectionId', 'linkId', 'isPrivate', 'reminderDate', 'updatedAt']);
+        allow delete: if isValidId(noteId) && isVerifiedUser() && isOwner(userId);
+      }
+
+      match /trash/{trashId} {
+        allow get: if isValidId(trashId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(trashId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidTrashItem(incoming(), userId, trashId)
+          && userDocExists(userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(trashId) && isVerifiedUser() && isOwner(userId);
+      }
+    }
+  }
+}

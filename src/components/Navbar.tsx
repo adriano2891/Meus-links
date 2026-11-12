@@ -10,7 +10,9 @@ import {
   Upload,
   Puzzle,
   Pencil,
-  Check
+  Check,
+  Cloud,
+  CloudOff
 } from "lucide-react";
 import { ShortcutBar } from "./ShortcutBar";
 
@@ -26,6 +28,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
     setIsNotesDrawerOpen,
     setIsCommandPaletteOpen,
     setIsImportExportOpen,
+    setIsAuthModalOpen,
+    isCloudSynced,
+    cloudEmail,
+    user,
     openAddLinkForShortcut,
     isShortcutEditMode,
     setIsShortcutEditMode,
@@ -175,6 +181,33 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           >
             <Plus className="w-4 h-4" />
             <span className="hidden min-[480px]:inline">Adicionar link</span>
+          </button>
+
+          {/* Cloud Sync / Google Account Button */}
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            title={
+              isCloudSynced
+                ? `Sincronizado na nuvem (${cloudEmail || user?.email || ""})`
+                : "Modo Local — Clique para entrar com Google e sincronizar na nuvem"
+            }
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 border ${
+              isCloudSynced
+                ? "bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/80 hover:bg-emerald-100/70"
+                : "bg-amber-50/80 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/80 hover:bg-amber-100/80"
+            }`}
+          >
+            {isCloudSynced ? (
+              <>
+                <Cloud className="w-4 h-4 text-emerald-500" />
+                <span className="hidden 2xl:inline">Nuvem Ativa</span>
+              </>
+            ) : (
+              <>
+                <CloudOff className="w-4 h-4 text-amber-500" />
+                <span className="hidden lg:inline">Conectar Nuvem</span>
+              </>
+            )}
           </button>
 
           {/* Theme Toggle */}

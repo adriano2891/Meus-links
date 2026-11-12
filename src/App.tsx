@@ -51,7 +51,8 @@ import {
   ArrowLeft,
   Edit2,
   Star,
-  X
+  X,
+  Cloud
 } from "lucide-react";
 
 const MainContent: React.FC = () => {
@@ -88,8 +89,14 @@ const MainContent: React.FC = () => {
     user,
     setFocusMode,
     runBrokenLinksCheck,
-    isCheckingLinks
+    isCheckingLinks,
+    isCloudSynced,
+    isAuthReady,
+    isLoading,
+    setIsAuthModalOpen
   } = useApp();
+
+  const [hideCloudBanner, setHideCloudBanner] = useState(false);
 
   // Local search query inside category view
   const [categorySearchQuery, setCategorySearchQuery] = useState("");
@@ -954,6 +961,32 @@ const MainContent: React.FC = () => {
       <Navbar />
 
       <div className="flex-1 flex flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-2.5 sm:pt-3.5 pb-8">
+        {!isLoading && isAuthReady && !isCloudSynced && !hideCloudBanner && (
+          <div className="mb-3.5 px-3.5 py-2.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/35 border border-amber-200/80 dark:border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+            <div className="flex items-center gap-2.5 text-xs text-amber-900 dark:text-amber-200 min-w-0">
+              <Cloud className="w-4 h-4 text-amber-500 shrink-0" />
+              <p className="leading-snug">
+                <strong>Modo Local:</strong> seus links estão salvos apenas neste navegador. Entre com sua conta Google para salvar na nuvem e abrir em qualquer dispositivo ou aba anônima.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              >
+                Conectar Conta Google
+              </button>
+              <button
+                onClick={() => setHideCloudBanner(true)}
+                title="Fechar aviso"
+                className="p-1 rounded-lg text-amber-600/70 hover:text-amber-800 dark:text-amber-400/70 dark:hover:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Main Content Area */}
         <main className="w-full min-w-0">
           {renderViewContent()}

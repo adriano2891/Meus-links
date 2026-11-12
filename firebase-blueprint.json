@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account profile and sync preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 320 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "avatar": { "type": "string", "maxLength": 2048 },
+        "plan": { "type": "string", "enum": ["free", "premium"] },
+        "apiToken": { "type": "string", "maxLength": 128 },
+        "theme": { "type": "string", "enum": ["light", "dark", "system"] },
+        "viewMode": { "type": "string", "enum": ["grid", "list", "compact"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "email", "name", "plan", "createdAt", "updatedAt"]
+    },
+    "Collection": {
+      "title": "Collection",
+      "description": "Top-level workspace collection grouping categories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "color": { "type": "string", "maxLength": 32 },
+        "icon": { "type": "string", "maxLength": 64 },
+        "isPrivate": { "type": "boolean" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "order", "createdAt", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "User category folder containing links and subcategories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "collectionId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "coverImage": { "type": "string", "maxLength": 2048 },
+        "color": { "type": "string", "maxLength": 32 },
+        "icon": { "type": "string", "maxLength": 64 },
+        "isPrivate": { "type": "boolean" },
+        "password": { "type": "string", "maxLength": 128 },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "order", "createdAt", "updatedAt"]
+    },
+    "Subcategory": {
+      "title": "Subcategory",
+      "description": "Subcategory folder inside a category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "color": { "type": "string", "maxLength": 32 },
+        "icon": { "type": "string", "maxLength": 64 },
+        "url": { "type": "string", "maxLength": 2048 },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "categoryId", "name", "createdAt", "updatedAt"]
+    },
+    "Link": {
+      "title": "Link",
+      "description": "Saved bookmark or quick-access shortcut bar link",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "subcategoryId": { "type": "string", "maxLength": 128 },
+        "collectionId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "url": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "tags": { "type": "array" },
+        "favicon": { "type": "string", "maxLength": 2048 },
+        "previewImage": { "type": "string", "maxLength": 2048 },
+        "noteId": { "type": "string", "maxLength": 128 },
+        "reviewDate": { "type": "string", "maxLength": 64 },
+        "isShortcut": { "type": "boolean" },
+        "shortcutOrder": { "type": "number" },
+        "isFavorite": { "type": "boolean" },
+        "isReadLater": { "type": "boolean" },
+        "isArchived": { "type": "boolean" },
+        "isPrivate": { "type": "boolean" },
+        "password": { "type": "string", "maxLength": 128 },
+        "clickCount": { "type": "number" },
+        "lastAccessedAt": { "type": "string", "maxLength": 64 },
+        "isBroken": { "type": "boolean" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "url", "tags", "isShortcut", "isFavorite", "isReadLater", "isArchived", "clickCount", "order", "createdAt", "updatedAt"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "User note optionally attached to a link or category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 250 },
+        "content": { "type": "string", "maxLength": 20000 },
+        "isPinned": { "type": "boolean" },
+        "tags": { "type": "array" },
+        "categoryId": { "type": "string", "maxLength": 128 },
+        "collectionId": { "type": "string", "maxLength": 128 },
+        "linkId": { "type": "string", "maxLength": 128 },
+        "isPrivate": { "type": "boolean" },
+        "reminderDate": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "content", "isPinned", "tags", "createdAt", "updatedAt"]
+    },
+    "TrashItem": {
+      "title": "TrashItem",
+      "description": "Soft-deleted item retained for 30-day recovery",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "itemType": { "type": "string", "enum": ["link", "note", "category", "collection"] },
+        "entityId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 300 },
+        "originalData": { "type": "object" },
+        "deletedAt": { "type": "string", "maxLength": 64 },
+        "expiresAt": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "itemType", "entityId", "title", "deletedAt", "expiresAt", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profile and workspace metadata"
+    },
+    "/users/{userId}/collections/{collectionId}": {
+      "schema": { "$ref": "#/entities/Collection" },
+      "description": "Collections owned by the authenticated user"
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Categories owned by the authenticated user"
+    },
+    "/users/{userId}/subcategories/{subcategoryId}": {
+      "schema": { "$ref": "#/entities/Subcategory" },
+      "description": "Subcategories owned by the authenticated user"
+    },
+    "/users/{userId}/links/{linkId}": {
+      "schema": { "$ref": "#/entities/Link" },
+      "description": "Links and shortcut bar items owned by the authenticated user"
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/Note" },
+      "description": "Notes owned by the authenticated user"
+    },
+    "/users/{userId}/trash/{trashId}": {
+      "schema": { "$ref": "#/entities/TrashItem" },
+      "description": "Trash recovery items owned by the authenticated user"
+    }
+  }
+}

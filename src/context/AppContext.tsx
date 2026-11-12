@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 import {
   UserProfile,
   CollectionItem,
@@ -11,7 +12,27 @@ import {
   BackupItem,
   UserSettings
 } from "../types";
-import { api } from "../services/api";
+import { api, syncCloudCacheToLocalStorage } from "../services/api";
+import { auth, signInWithGoogle, signOutFirebase } from "../services/firebase";
+import {
+  ensureUserProfileDoc,
+  updateFirestoreUserProfile,
+  upsertFirestoreCollection,
+  deleteFirestoreCollection,
+  upsertFirestoreCategory,
+  deleteFirestoreCategory,
+  upsertFirestoreSubcategory,
+  deleteFirestoreSubcategory,
+  upsertFirestoreLink,
+  recordFirestoreLinkClick,
+  deleteFirestoreLink,
+  upsertFirestoreNote,
+  deleteFirestoreNote,
+  createFirestoreTrashItem,
+  deleteFirestoreTrashItem,
+  subscribeToUserCloudData,
+  migrateLocalDataToFirestore
+} from "../services/firestoreSync";
 
 export type ActiveViewType =
   | "home"
@@ -48,10 +69,16 @@ interface AppContextType {
   // User & Auth
   user: UserProfile | null;
   isAuthenticated: boolean;
+  isCloudSynced: boolean;
+  isAuthReady: boolean;
+  cloudEmail: string | null;
+  authDomainError: string | null;
+  clearAuthDomainError: () => void;
   isLoading: boolean;
+  loginWithGoogle: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
   updateUserSettings: (settings: Partial<UserSettings>) => Promise<void>;
 
@@ -66,6 +93,18 @@ interface AppContextType {
   auditLogs: AuditLog[];
   backups: BackupItem[];
   refreshData: () => Promise<void>;
+  importCloudData: (payload: {
+    importedData: any;
+    importType: "json" | "bookmarks_list";
+    targetCategoryId?: string;
+    mode?: "merge" | "replace";
+  }) => Promise<{
+    success: boolean;
+    importedLinksCount: number;
+    importedCategoriesCount: number;
+    importedSubcategoriesCount?: number;
+    importedNotesCount: number;
+  }>;
 
   // Navigation & Filtering
   activeView: ActiveViewType;
@@ -206,6 +245,11 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const firebaseUserRef = useRef<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authDomainError, setAuthDomainError] = useState<string | null>(null);
+
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -265,10 +309,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("custom");
 
-  // Selection for batch actions
   const [selectedLinkIds, setSelectedLinkIds] = useState<string[]>([]);
 
-  // Modals state
   const [isAddLinkOpen, setIsAddLinkOpen] = useState(false);
   const [editingLink, setEditingLink] = useState<LinkItem | null>(null);
   const [preselectedSubcategoryId, setPreselectedSubcategoryId] = useState<string | null>(null);
@@ -321,10 +363,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [subcategoryToDelete, setSubcategoryToDelete] = useState<SubcategoryItem | null>(null);
   const [isCheckingLinks, setIsCheckingLinks] = useState(false);
 
-  // Toasts
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Dark Mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return localStorage.getItem("meuslinks_theme") === "dark" ||
       (!("meuslinks_theme" in localStorage) && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -335,12 +375,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => [...prev, { ...toast, id }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, 4500);
   }, []);
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  const clearAuthDomainError = useCallback(() => setAuthDomainError(null), []);
 
   const toggleDarkMode = useCallback(() => {
     setIsDarkMode((prev) => {
@@ -350,6 +392,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         document.documentElement.classList.add("dark");
       } else {
         document.documentElement.classList.remove("dark");
+      }
+      if (firebaseUserRef.current) {
+        updateFirestoreUserProfile(firebaseUserRef.current.uid, {
+          settings: {
+            theme: next ? "dark" : "light",
+            brokenLinkCheckFrequency: "daily",
+            reminderCheckFrequency: "daily",
+            viewMode: "grid"
+          }
+        }).catch(() => {});
       }
       return next;
     });
@@ -363,8 +415,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [isDarkMode]);
 
-  // Load all initial data from Cloud backend
+  // Ref holding live cloud snapshot so cache stays synchronized with localStorage/extension
+  const cloudCacheRef = useRef<{
+    user: UserProfile | null;
+    collections: CollectionItem[];
+    categories: CategoryItem[];
+    subcategories: SubcategoryItem[];
+    links: LinkItem[];
+    archivedLinks: LinkItem[];
+    notes: NoteItem[];
+    trash: TrashItem[];
+  }>({
+    user: null,
+    collections: [],
+    categories: [],
+    subcategories: [],
+    links: [],
+    archivedLinks: [],
+    notes: [],
+    trash: []
+  });
+
+  const persistCloudCache = useCallback(() => {
+    syncCloudCacheToLocalStorage({
+      user: cloudCacheRef.current.user,
+      collections: cloudCacheRef.current.collections,
+      categories: cloudCacheRef.current.categories,
+      subcategories: cloudCacheRef.current.subcategories,
+      links: cloudCacheRef.current.links,
+      archivedLinks: cloudCacheRef.current.archivedLinks,
+      notes: cloudCacheRef.current.notes,
+      trash: cloudCacheRef.current.trash
+    });
+  }, []);
+
+  // Load offline / backend fallback data when not logged in to Firebase
   const refreshData = useCallback(async () => {
+    if (firebaseUserRef.current) {
+      // Cloud mode uses live Firestore onSnapshot listeners
+      setIsLoading(false);
+      return;
+    }
     try {
       const data = await api.fetchAllData();
       setUser(data.user);
@@ -388,40 +479,156 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToast({
         type: "error",
         title: "Erro de sincronização",
-        message: "Não foi possível carregar dados da nuvem."
+        message: "Não foi possível carregar dados locais."
       });
     } finally {
       setIsLoading(false);
     }
   }, [addToast]);
 
+  // Firebase Auth listener + Real-time Firestore Cloud Subscription
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    let unsubFirestore: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubFirestore) {
+        unsubFirestore();
+        unsubFirestore = null;
+      }
+
+      firebaseUserRef.current = fbUser;
+      setFirebaseUser(fbUser);
+
+      if (fbUser) {
+        setIsLoading(true);
+        try {
+          const profile = await ensureUserProfileDoc(fbUser);
+          setUser(profile);
+          cloudCacheRef.current.user = profile;
+          localStorage.setItem("meuslinks_user", JSON.stringify(profile));
+          localStorage.setItem("meuslinks_token", profile.id);
+
+          // Automatically migrate any pre-existing local categories/links to the user's cloud account
+          const migratedCount = await migrateLocalDataToFirestore(fbUser);
+          if (migratedCount > 0) {
+            addToast({
+              type: "success",
+              title: "Dados enviados para a nuvem!",
+              message: `${migratedCount} itens locais foram sincronizados com sua conta Google.`
+            });
+          }
+
+          unsubFirestore = subscribeToUserCloudData(fbUser.uid, {
+            onProfile: (partial) => {
+              setUser((prev) => {
+                const merged = prev ? { ...prev, ...partial } : (profile as UserProfile);
+                cloudCacheRef.current.user = merged;
+                localStorage.setItem("meuslinks_user", JSON.stringify(merged));
+                return merged;
+              });
+            },
+            onCollections: (items) => {
+              cloudCacheRef.current.collections = items;
+              setCollections(items);
+              persistCloudCache();
+            },
+            onCategories: (items) => {
+              cloudCacheRef.current.categories = items;
+              setCategories(items);
+              persistCloudCache();
+            },
+            onSubcategories: (items) => {
+              cloudCacheRef.current.subcategories = items;
+              setSubcategories(items);
+              persistCloudCache();
+            },
+            onLinks: (active, archived) => {
+              cloudCacheRef.current.links = active;
+              cloudCacheRef.current.archivedLinks = archived;
+              setLinks(active);
+              setArchivedLinks(archived);
+              persistCloudCache();
+            },
+            onNotes: (items) => {
+              cloudCacheRef.current.notes = items;
+              setNotes(items);
+              persistCloudCache();
+            },
+            onTrash: (items) => {
+              cloudCacheRef.current.trash = items;
+              setTrash(items);
+              persistCloudCache();
+            }
+          });
+        } catch (err: any) {
+          console.error("Firebase cloud initialization error:", err);
+          const msg = String(err?.message || "");
+          if (msg.includes("Quota exceeded")) {
+            addToast({
+              type: "error",
+              title: "Cota diária do banco atingida",
+              message: "O limite gratuito de leituras/escritas foi atingido hoje e será renovado amanhã."
+            });
+          } else {
+            addToast({
+              type: "error",
+              title: "Erro ao sincronizar na nuvem",
+              message: "Usando cache local temporário."
+            });
+          }
+          await refreshData();
+        } finally {
+          setIsLoading(false);
+          setIsAuthReady(true);
+        }
+      } else {
+        await refreshData();
+        setIsAuthReady(true);
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubFirestore) unsubFirestore();
+    };
+  }, [addToast, persistCloudCache, refreshData]);
 
   // Real-time synchronization listener for extension link saves
   useEffect(() => {
+    const syncSavedLinkFromExtension = async (savedLink: any) => {
+      if (!savedLink) return;
+      const fbUser = firebaseUserRef.current;
+      if (fbUser) {
+        try {
+          await upsertFirestoreLink(fbUser.uid, savedLink, true);
+        } catch (err) {
+          console.error("Failed to sync extension link to Firestore:", err);
+        }
+      } else {
+        await refreshData();
+      }
+      addToast({
+        type: "success",
+        title: "Link salvo via Extensão!",
+        message: savedLink.title || savedLink.url
+      });
+    };
+
     const handleExternalSave = (e: any) => {
-      refreshData();
       const savedLink = e.detail?.link || e.data?.link;
       if (savedLink) {
-        addToast({
-          type: "success",
-          title: "Link salvo via Extensão!",
-          message: savedLink.title || savedLink.url
-        });
+        syncSavedLinkFromExtension(savedLink);
+      } else {
+        refreshData();
       }
     };
 
     const handleWindowMessage = (e: MessageEvent) => {
       if (e.data && e.data.type === "MEUS_LINKS_DATA_CHANGED") {
-        refreshData();
         if (e.data.link) {
-          addToast({
-            type: "success",
-            title: "Link salvo no App!",
-            message: e.data.link.title || e.data.link.url
-          });
+          syncSavedLinkFromExtension(e.data.link);
+        } else {
+          refreshData();
         }
       }
     };
@@ -438,7 +645,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Synchronize categories & subcategories in real-time with the browser extension
   useEffect(() => {
-    // Critical guard: never overwrite storage with empty arrays during initial loading!
     if (!isDataInitialized.current && categories.length === 0 && subcategories.length === 0) {
       return;
     }
@@ -448,7 +654,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem("meuslinks_categories", JSON.stringify(categories));
       localStorage.setItem("meuslinks_subcategories", JSON.stringify(subcategories));
 
-      // Update offline DB cache if present
       const rawOffline = localStorage.getItem("meuslinks_offline_data");
       if (rawOffline) {
         try {
@@ -459,7 +664,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch {}
       }
 
-      // Broadcast to extension content script via DOM event and postMessage
       window.dispatchEvent(
         new CustomEvent("meuslinks_categories_updated", {
           detail: { categories, subcategories }
@@ -474,7 +678,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         "*"
       );
 
-      // Direct Chrome Extension messaging if available in window context
       const winChrome = (window as unknown as { chrome?: { runtime?: { sendMessage?: (msg: unknown) => void } } }).chrome;
       if (winChrome && winChrome.runtime && typeof winChrome.runtime.sendMessage === "function") {
         winChrome.runtime.sendMessage({
@@ -491,7 +694,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Keyboard Shortcuts (Ctrl+K, N, L, C)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if user is actively typing in an input/textarea/select
       const activeEl = document.activeElement;
       const isInput =
         activeEl?.tagName === "INPUT" ||
@@ -499,14 +701,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeEl?.tagName === "SELECT" ||
         (activeEl as HTMLElement)?.isContentEditable;
 
-      // Ctrl + K or Cmd + K
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
         return;
       }
 
-      // If typing inside an input, don't trigger single letter shortcuts
       if (isInput) return;
 
       if (e.key === "n" || e.key === "N") {
@@ -531,6 +731,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [focusMode]);
 
   // Auth methods
+  const loginWithGoogle = async () => {
+    setAuthDomainError(null);
+    try {
+      const fbUser = await signInWithGoogle();
+      setIsAuthModalOpen(false);
+      addToast({
+        type: "success",
+        title: `Conectado como ${fbUser.displayName || fbUser.email}!`,
+        message: "Seus links rápidos, categorias e subcategorias agora sincronizam na nuvem em tempo real."
+      });
+    } catch (err: any) {
+      const code = err?.code || "";
+      if (code === "auth/unauthorized-domain") {
+        const domain = typeof window !== "undefined" ? window.location.hostname : "";
+        setAuthDomainError(domain);
+        setIsAuthModalOpen(true);
+        throw new Error(`Domínio "${domain}" não autorizado no Firebase Auth.`);
+      }
+      if (code === "auth/popup-closed-by-user") {
+        throw new Error("Login cancelado pelo usuário.");
+      }
+      throw new Error(err?.message || "Não foi possível entrar com o Google.");
+    }
+  };
+
   const login = async (email: string, pass: string) => {
     const res = await api.login(email, pass);
     localStorage.setItem("meuslinks_token", res.token);
@@ -541,7 +766,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast({
       type: "success",
       title: `Bem-vindo, ${res.user.name}!`,
-      message: "Sessão iniciada e dados sincronizados com segurança."
+      message: "Sessão local iniciada. Para nuvem multi-dispositivo, entre com Google."
     });
   };
 
@@ -553,29 +778,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsAuthModalOpen(false);
     addToast({
       type: "success",
-      title: "Conta criada com sucesso!",
-      message: "Seu espaço seguro de links e notas na nuvem está pronto."
+      title: "Conta local criada!",
+      message: "Para sincronizar em outros dispositivos, conecte sua conta Google."
     });
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (firebaseUserRef.current) {
+      await signOutFirebase();
+    }
     localStorage.removeItem("meuslinks_token");
     setUser(null);
-    refreshData();
+    await refreshData();
     addToast({
       type: "info",
       title: "Sessão encerrada",
-      message: "Você saiu da sua conta."
+      message: "Você desconectou sua conta da nuvem neste navegador."
     });
   };
 
   const updateUserProfile = async (data: Partial<UserProfile>) => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await updateFirestoreUserProfile(fbUser.uid, data);
+      setUser((prev) => (prev ? { ...prev, ...data } : prev));
+      addToast({
+        type: "success",
+        title: "Perfil atualizado",
+        message: "Suas preferências foram salvas na nuvem."
+      });
+      return;
+    }
     const res = await api.updateProfile(data);
     setUser(res.user);
     addToast({
       type: "success",
       title: "Perfil atualizado",
-      message: "Suas preferências foram salvas na nuvem."
+      message: "Preferências salvas localmente."
     });
   };
 
@@ -590,10 +829,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Link Handlers
   const handleLinkClick = async (link: LinkItem) => {
-    // Open in new tab safely
     window.open(link.url, "_blank", "noopener,noreferrer");
 
-    // Optimistically update click count
     setLinks((prev) =>
       prev.map((l) =>
         l.id === link.id
@@ -601,6 +838,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : l
       )
     );
+
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      try {
+        await recordFirestoreLinkClick(fbUser.uid, link.id, link.clickCount || 0);
+      } catch (err) {
+        console.error("Failed to record Firestore link click:", err);
+      }
+      return;
+    }
 
     try {
       await api.recordClick(link.id);
@@ -610,6 +857,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const createLink = async (linkData: Partial<LinkItem>): Promise<LinkItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const created = await upsertFirestoreLink(
+        fbUser.uid,
+        {
+          ...linkData,
+          shortcutOrder:
+            linkData.isShortcut && linkData.shortcutOrder === undefined
+              ? links.filter((l) => l.isShortcut).length + 1
+              : linkData.shortcutOrder,
+          order: linkData.order ?? links.length + 1
+        },
+        true
+      );
+      addToast({
+        type: "success",
+        title: "Link salvo na nuvem!",
+        message: created.title
+      });
+      return created;
+    }
+
     const created = await api.createLink(linkData);
     setLinks((prev) => {
       const filtered = prev.filter((l) => l.id !== created.id);
@@ -633,6 +902,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateLink = async (id: string, linkData: Partial<LinkItem>): Promise<LinkItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const updated = await upsertFirestoreLink(fbUser.uid, { ...linkData, id });
+      addToast({
+        type: "success",
+        title: "Link atualizado na nuvem!",
+        message: updated.title
+      });
+      return updated;
+    }
+
     const updated = await api.updateLink(id, linkData);
     setLinks((prev) => prev.map((l) => (l.id === id ? updated : l)));
     addToast({
@@ -645,6 +925,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteLink = async (id: string) => {
     const target = links.find((l) => l.id === id);
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      if (target) {
+        const now = new Date();
+        await createFirestoreTrashItem(fbUser.uid, {
+          itemType: "link",
+          entityId: target.id,
+          title: target.title || "Link",
+          originalData: target,
+          deletedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 30 * 86400000).toISOString()
+        });
+      }
+      await deleteFirestoreLink(fbUser.uid, id);
+      addToast({
+        type: "info",
+        title: "Link movido para a lixeira",
+        message: target ? `${target.title} (recuperável por 30 dias)` : "Recuperável por 30 dias."
+      });
+      return;
+    }
+
     setLinks((prev) => prev.filter((l) => l.id !== id));
     await api.deleteLink(id);
     await refreshData();
@@ -658,7 +960,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleFavoriteLink = async (link: LinkItem) => {
     const nextVal = !link.isFavorite;
     setLinks((prev) => prev.map((l) => (l.id === link.id ? { ...l, isFavorite: nextVal } : l)));
-    await api.updateLink(link.id, { isFavorite: nextVal });
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await upsertFirestoreLink(fbUser.uid, { id: link.id, isFavorite: nextVal });
+    } else {
+      await api.updateLink(link.id, { isFavorite: nextVal });
+    }
     addToast({
       type: "info",
       title: nextVal ? "Adicionado aos Favoritos" : "Removido dos Favoritos",
@@ -669,7 +976,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleReadLaterLink = async (link: LinkItem) => {
     const nextVal = !link.isReadLater;
     setLinks((prev) => prev.map((l) => (l.id === link.id ? { ...l, isReadLater: nextVal } : l)));
-    await api.updateLink(link.id, { isReadLater: nextVal });
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await upsertFirestoreLink(fbUser.uid, { id: link.id, isReadLater: nextVal });
+    } else {
+      await api.updateLink(link.id, { isReadLater: nextVal });
+    }
     addToast({
       type: "info",
       title: nextVal ? "Marcado para Ler Depois" : "Removido de Ler Depois",
@@ -691,11 +1003,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : l
       )
     );
-    await api.updateLink(link.id, {
-      isShortcut: nextVal,
-      categoryId: nextVal ? undefined : link.categoryId,
-      subcategoryId: nextVal ? undefined : link.subcategoryId
-    });
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await upsertFirestoreLink(fbUser.uid, {
+        id: link.id,
+        isShortcut: nextVal,
+        categoryId: nextVal ? undefined : link.categoryId,
+        subcategoryId: nextVal ? undefined : link.subcategoryId
+      });
+    } else {
+      await api.updateLink(link.id, {
+        isShortcut: nextVal,
+        categoryId: nextVal ? undefined : link.categoryId,
+        subcategoryId: nextVal ? undefined : link.subcategoryId
+      });
+    }
     addToast({
       type: "info",
       title: nextVal ? "Fixado na barra superior (Link Rápido)" : "Removido dos atalhos",
@@ -704,17 +1026,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const reorderShortcuts = async (orderedIds: string[]) => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await Promise.all(
+        orderedIds.map((id, idx) =>
+          upsertFirestoreLink(fbUser.uid, { id, shortcutOrder: idx + 1 })
+        )
+      );
+      addToast({
+        type: "success",
+        title: "Atalhos reorganizados!",
+        message: "A ordem foi sincronizada na nuvem."
+      });
+      return;
+    }
+
     await api.reorderShortcuts(orderedIds);
     await refreshData();
     addToast({
       type: "success",
       title: "Atalhos reorganizados!",
-      message: "A ordem foi sincronizada na nuvem."
+      message: "A ordem foi atualizada."
     });
   };
 
   // Categories Handlers
   const createCategory = async (catData: Partial<CategoryItem>): Promise<CategoryItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const created = await upsertFirestoreCategory(
+        fbUser.uid,
+        { ...catData, order: catData.order ?? categories.length + 1 },
+        true
+      );
+      addToast({
+        type: "success",
+        title: "Categoria salva na nuvem!",
+        message: created.name
+      });
+      return created;
+    }
+
     const created = await api.createCategory(catData);
     setCategories((prev) => {
       const filtered = prev.filter((c) => c.id !== created.id);
@@ -739,6 +1091,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCategory = async (id: string, catData: Partial<CategoryItem>): Promise<CategoryItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const updated = await upsertFirestoreCategory(fbUser.uid, { ...catData, id });
+      addToast({
+        type: "success",
+        title: "Categoria atualizada na nuvem!",
+        message: updated.name
+      });
+      return updated;
+    }
+
     const updated = await api.updateCategory(id, catData);
     setCategories((prev) => prev.map((c) => (c.id === id ? updated : c)));
     addToast({
@@ -754,7 +1117,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     handleLinks: "delete_links" | "move_links" | "keep_uncategorized",
     targetCategoryId?: string
   ) => {
-    // Optimistic removal so extension card and UI update instantly
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const targetCat = categories.find((c) => c.id === id);
+      const subsToDelete = subcategories.filter((s) => s.categoryId === id);
+      const affectedLinks = links.filter((l) => l.categoryId === id);
+
+      if (targetCat) {
+        const now = new Date();
+        await createFirestoreTrashItem(fbUser.uid, {
+          itemType: "category",
+          entityId: targetCat.id,
+          title: targetCat.name,
+          originalData: targetCat,
+          deletedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 30 * 86400000).toISOString()
+        });
+      }
+
+      if (handleLinks === "delete_links") {
+        await Promise.all(affectedLinks.map((l) => deleteFirestoreLink(fbUser.uid, l.id)));
+      } else if (handleLinks === "move_links" && targetCategoryId) {
+        await Promise.all(
+          affectedLinks.map((l) =>
+            upsertFirestoreLink(fbUser.uid, {
+              id: l.id,
+              categoryId: targetCategoryId,
+              subcategoryId: ""
+            })
+          )
+        );
+      } else {
+        await Promise.all(
+          affectedLinks.map((l) =>
+            upsertFirestoreLink(fbUser.uid, {
+              id: l.id,
+              categoryId: "",
+              subcategoryId: ""
+            })
+          )
+        );
+      }
+
+      await Promise.all(subsToDelete.map((s) => deleteFirestoreSubcategory(fbUser.uid, s.id)));
+      await deleteFirestoreCategory(fbUser.uid, id);
+      setCategoryToDelete(null);
+      addToast({
+        type: "info",
+        title: "Categoria removida da nuvem",
+        message: "Item e links tratados com sucesso."
+      });
+      return;
+    }
+
     setCategories((prev) => prev.filter((c) => c.id !== id));
     setSubcategories((prev) => prev.filter((s) => s.categoryId !== id));
     await api.deleteCategory(id, handleLinks, targetCategoryId);
@@ -769,6 +1184,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Subcategories Handlers
   const createSubcategory = async (sub: { categoryId: string; name: string; url: string }): Promise<SubcategoryItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const created = await upsertFirestoreSubcategory(
+        fbUser.uid,
+        {
+          ...sub,
+          order: subcategories.filter((s) => s.categoryId === sub.categoryId).length + 1
+        },
+        true
+      );
+      addToast({
+        type: "success",
+        title: "Subcategoria salva na nuvem!",
+        message: created.name
+      });
+      return created;
+    }
+
     const created = await api.createSubcategory(sub);
     setSubcategories((prev) => [...prev, created]);
     addToast({
@@ -780,6 +1213,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateSubcategory = async (id: string, sub: Partial<SubcategoryItem>): Promise<SubcategoryItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const updated = await upsertFirestoreSubcategory(fbUser.uid, { ...sub, id });
+      addToast({
+        type: "success",
+        title: "Subcategoria atualizada na nuvem!",
+        message: updated.name
+      });
+      return updated;
+    }
+
     const updated = await api.updateSubcategory(id, sub);
     setSubcategories((prev) => prev.map((s) => (s.id === id ? updated : s)));
     addToast({
@@ -796,6 +1240,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ) => {
     const target = subcategories.find((s) => s.id === id);
     if (!target) return;
+
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const subLinks = links.filter((l) => l.subcategoryId === id);
+      if (action === "delete_links") {
+        await Promise.all(subLinks.map((l) => deleteFirestoreLink(fbUser.uid, l.id)));
+      } else {
+        await Promise.all(
+          subLinks.map((l) => upsertFirestoreLink(fbUser.uid, { id: l.id, subcategoryId: "" }))
+        );
+      }
+      await deleteFirestoreSubcategory(fbUser.uid, id);
+      setSubcategoryToDelete(null);
+      addToast({
+        type: "info",
+        title: "Subcategoria excluída da nuvem",
+        message: `"${target.name}" foi removida com sucesso.`
+      });
+      return;
+    }
 
     if (action === "delete_links") {
       const linksToDelete = links.filter((l) => l.subcategoryId === id);
@@ -826,6 +1290,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Collections Handlers
   const createCollection = async (colData: Partial<CollectionItem>): Promise<CollectionItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const created = await upsertFirestoreCollection(
+        fbUser.uid,
+        { ...colData, order: colData.order ?? collections.length + 1 },
+        true
+      );
+      addToast({
+        type: "success",
+        title: "Coleção salva na nuvem!",
+        message: created.name
+      });
+      return created;
+    }
+
     const created = await api.createCollection(colData);
     setCollections((prev) => [...prev, created]);
     addToast({
@@ -837,12 +1316,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCollection = async (id: string, colData: Partial<CollectionItem>): Promise<CollectionItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      return upsertFirestoreCollection(fbUser.uid, { ...colData, id });
+    }
     const updated = await api.updateCollection(id, colData);
     setCollections((prev) => prev.map((c) => (c.id === id ? updated : c)));
     return updated;
   };
 
   const deleteCollection = async (id: string) => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await deleteFirestoreCollection(fbUser.uid, id);
+      addToast({
+        type: "info",
+        title: "Coleção excluída da nuvem",
+        message: "As categorias vinculadas foram mantidas."
+      });
+      return;
+    }
     await api.deleteCollection(id);
     await refreshData();
     addToast({
@@ -854,18 +1347,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Notes Handlers
   const createNote = async (noteData: Partial<NoteItem>): Promise<NoteItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      return upsertFirestoreNote(fbUser.uid, noteData, true);
+    }
     const created = await api.createNote(noteData);
     setNotes((prev) => [created, ...prev]);
     return created;
   };
 
   const updateNote = async (id: string, noteData: Partial<NoteItem>): Promise<NoteItem> => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      return upsertFirestoreNote(fbUser.uid, { ...noteData, id });
+    }
     const updated = await api.updateNote(id, noteData);
     setNotes((prev) => prev.map((n) => (n.id === id ? updated : n)));
     return updated;
   };
 
   const deleteNote = async (id: string) => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await deleteFirestoreNote(fbUser.uid, id);
+      addToast({
+        type: "info",
+        title: "Nota excluída da nuvem"
+      });
+      return;
+    }
     await api.deleteNote(id);
     setNotes((prev) => prev.filter((n) => n.id !== id));
     await refreshData();
@@ -898,6 +1408,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Trash Handlers
   const restoreTrashItem = async (id: string) => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      const target = trash.find((t) => t.id === id);
+      if (target && target.originalData) {
+        if (target.itemType === "link") {
+          await upsertFirestoreLink(fbUser.uid, target.originalData, true);
+        } else if (target.itemType === "category") {
+          await upsertFirestoreCategory(fbUser.uid, target.originalData, true);
+        }
+      }
+      await deleteFirestoreTrashItem(fbUser.uid, id);
+      addToast({
+        type: "success",
+        title: "Item restaurado na nuvem!",
+        message: "Recolocado no seu local de origem."
+      });
+      return;
+    }
+
     await api.restoreTrashItem(id);
     await refreshData();
     addToast({
@@ -908,21 +1437,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const permanentlyDeleteTrash = async (id: string) => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await deleteFirestoreTrashItem(fbUser.uid, id);
+      addToast({ type: "info", title: "Excluído permanentemente" });
+      return;
+    }
     await api.permanentlyDeleteTrash(id);
     setTrash((prev) => prev.filter((t) => t.id !== id));
-    addToast({
-      type: "info",
-      title: "Excluído permanentemente"
-    });
+    addToast({ type: "info", title: "Excluído permanentemente" });
   };
 
   const emptyTrash = async () => {
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      await Promise.all(trash.map((t) => deleteFirestoreTrashItem(fbUser.uid, t.id)));
+      addToast({ type: "info", title: "Lixeira esvaziada" });
+      return;
+    }
     await api.emptyTrash();
     setTrash([]);
-    addToast({
-      type: "info",
-      title: "Lixeira esvaziada"
-    });
+    addToast({ type: "info", title: "Lixeira esvaziada" });
   };
 
   // Batch actions
@@ -943,6 +1478,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     extra?: string
   ) => {
     if (selectedLinkIds.length === 0) return;
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      if (action === "delete") {
+        await Promise.all(selectedLinkIds.map((id) => deleteFirestoreLink(fbUser.uid, id)));
+      } else if (action === "favorite") {
+        await Promise.all(selectedLinkIds.map((id) => upsertFirestoreLink(fbUser.uid, { id, isFavorite: true })));
+      } else if (action === "archive") {
+        await Promise.all(selectedLinkIds.map((id) => upsertFirestoreLink(fbUser.uid, { id, isArchived: true })));
+      } else if (action === "move" && extra) {
+        await Promise.all(selectedLinkIds.map((id) => upsertFirestoreLink(fbUser.uid, { id, categoryId: extra })));
+      } else if (action === "addTag" && extra) {
+        await Promise.all(
+          selectedLinkIds.map((id) => {
+            const current = links.find((l) => l.id === id);
+            const nextTags = Array.from(new Set([...(current?.tags || []), extra]));
+            return upsertFirestoreLink(fbUser.uid, { id, tags: nextTags });
+          })
+        );
+      }
+      clearSelectedLinks();
+      addToast({
+        type: "success",
+        title: "Ação em massa salva na nuvem!",
+        message: `${selectedLinkIds.length} links processados.`
+      });
+      return;
+    }
+
     await api.batchLinks({
       action,
       linkIds: selectedLinkIds,
@@ -956,6 +1519,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       title: "Ação em massa concluída!",
       message: `${selectedLinkIds.length} links processados.`
     });
+  };
+
+  // Cloud Import helper (JSON & Browser HTML Bookmarks)
+  const importCloudData = async (payload: {
+    importedData: any;
+    importType: "json" | "bookmarks_list";
+    targetCategoryId?: string;
+    mode?: "merge" | "replace";
+  }) => {
+    const fbUser = firebaseUserRef.current;
+    if (!fbUser) {
+      return api.importData(payload);
+    }
+
+    const uid = fbUser.uid;
+    let importedLinksCount = 0;
+    let importedCategoriesCount = 0;
+    let importedSubcategoriesCount = 0;
+    let importedNotesCount = 0;
+
+    if (payload.importType === "bookmarks_list") {
+      const items = Array.isArray(payload.importedData) ? payload.importedData : [];
+      const folderCatMap = new Map<string, string>();
+      for (const item of items) {
+        let catId = payload.targetCategoryId;
+        if (!catId && item.folder) {
+          if (folderCatMap.has(item.folder)) {
+            catId = folderCatMap.get(item.folder);
+          } else {
+            const existingCat = categories.find((c) => c.name.toLowerCase() === item.folder.toLowerCase());
+            if (existingCat) {
+              catId = existingCat.id;
+            } else {
+              const createdCat = await upsertFirestoreCategory(uid, { name: item.folder }, true);
+              catId = createdCat.id;
+              importedCategoriesCount++;
+            }
+            folderCatMap.set(item.folder, catId);
+          }
+        }
+        await upsertFirestoreLink(
+          uid,
+          {
+            title: item.title || item.url,
+            url: item.url,
+            categoryId: catId
+          },
+          true
+        );
+        importedLinksCount++;
+      }
+      return { success: true, importedLinksCount, importedCategoriesCount, importedNotesCount };
+    }
+
+    const raw = payload.importedData?.data || payload.importedData || {};
+    const cats = Array.isArray(raw.categories) ? raw.categories : [];
+    const subs = Array.isArray(raw.subcategories) ? raw.subcategories : [];
+    const importedLinks = Array.isArray(raw.links) ? raw.links : Array.isArray(raw) ? raw : [];
+    const importedNotes = Array.isArray(raw.notes) ? raw.notes : [];
+
+    for (const c of cats) {
+      await upsertFirestoreCategory(uid, c, true);
+      importedCategoriesCount++;
+    }
+    for (const s of subs) {
+      await upsertFirestoreSubcategory(uid, s, true);
+      importedSubcategoriesCount++;
+    }
+    for (const l of importedLinks) {
+      await upsertFirestoreLink(uid, l, true);
+      importedLinksCount++;
+    }
+    for (const n of importedNotes) {
+      await upsertFirestoreNote(uid, n, true);
+      importedNotesCount++;
+    }
+
+    return {
+      success: true,
+      importedLinksCount,
+      importedCategoriesCount,
+      importedSubcategoriesCount,
+      importedNotesCount
+    };
   };
 
   // Broken link tester
@@ -989,7 +1636,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         user,
         isAuthenticated: !!user,
+        isCloudSynced: !!firebaseUser,
+        isAuthReady,
+        cloudEmail: firebaseUser?.email || null,
+        authDomainError,
+        clearAuthDomainError,
         isLoading,
+        loginWithGoogle,
         login,
         register,
         logout,
@@ -1005,6 +1658,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditLogs,
         backups,
         refreshData,
+        importCloudData,
         activeView,
         setActiveView,
         selectedCategoryId,

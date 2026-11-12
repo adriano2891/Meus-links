@@ -36,8 +36,11 @@ export const ImportExportModal: React.FC = () => {
     refreshData,
     categories,
     subcategories,
+    collections,
     links,
     notes,
+    isCloudSynced,
+    importCloudData,
     addToast
   } = useApp();
 
@@ -256,7 +259,7 @@ export const ImportExportModal: React.FC = () => {
     if (parsedBookmarks.length === 0) return;
     setIsImportingBookmarks(true);
     try {
-      const res = await api.importData({
+      const res = await importCloudData({
         importType: "bookmarks_list",
         importedData: parsedBookmarks,
         targetCategoryId: targetCategory || undefined
@@ -285,7 +288,9 @@ export const ImportExportModal: React.FC = () => {
   const handleDownloadFullExport = async () => {
     setIsExporting(true);
     try {
-      const exportJson = await api.getExportData();
+      const exportJson = isCloudSynced
+        ? { collections, categories, subcategories, links, notes, exportedAt: new Date().toISOString() }
+        : await api.getExportData();
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportJson, null, 2));
       const downloadAnchor = document.createElement("a");
       downloadAnchor.setAttribute("href", dataStr);
@@ -311,7 +316,9 @@ export const ImportExportModal: React.FC = () => {
 
   const handleCopyJsonToClipboard = async () => {
     try {
-      const exportJson = await api.getExportData();
+      const exportJson = isCloudSynced
+        ? { collections, categories, subcategories, links, notes, exportedAt: new Date().toISOString() }
+        : await api.getExportData();
       await navigator.clipboard.writeText(JSON.stringify(exportJson, null, 2));
       setHasCopiedJson(true);
       setTimeout(() => setHasCopiedJson(false), 2500);
@@ -367,7 +374,7 @@ export const ImportExportModal: React.FC = () => {
     if (!jsonPreview) return;
     setIsImportingJson(true);
     try {
-      const res = await api.importData({
+      const res = await importCloudData({
         importType: "json",
         importedData: jsonPreview.rawPayload,
         mode: jsonImportMode
