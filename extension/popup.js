@@ -1,5 +1,5 @@
 // Meus Links - Popup Script (Manifest V3)
-// Versão 1.0.7 - Sincronização persistente de categorias entre qualquer site e o App
+// Versão 1.0.9 - Persistência garantida na nuvem e seleção exata de categoria/subcategoria em qualquer site
 
 const DEFAULT_SERVER_URL = "https://links-inteligentes.netlify.app";
 const DEFAULT_AUTH_TOKEN = "ml_live_y7bsjzh8kiihfpgj2vg";
@@ -155,9 +155,20 @@ function showView(viewId) {
 // -------------------------------------------------------------
 // Universal App Tab Finder (Prioritizes Netlify and real App tabs)
 // -------------------------------------------------------------
+function isAllowedAppHost(hostname) {
+  if (!hostname) return false;
+  return (
+    hostname === "links-inteligentes.netlify.app" ||
+    hostname.endsWith(".run.app") ||
+    hostname === "localhost" ||
+    hostname === "127.0.0.1"
+  );
+}
+
 function getConfiguredAppHostname() {
   try {
-    return new URL(appState.serverUrl || DEFAULT_SERVER_URL).hostname;
+    const h = new URL(appState.serverUrl || DEFAULT_SERVER_URL).hostname;
+    return isAllowedAppHost(h) ? h : "links-inteligentes.netlify.app";
   } catch {
     return "links-inteligentes.netlify.app";
   }
@@ -188,16 +199,19 @@ async function findAppTab() {
   try {
     const configuredHost = getConfiguredAppHostname();
     const allTabs = await chrome.tabs.query({});
+    // Prefer non-discarded tabs first
+    const orderedTabs = [...allTabs].sort((a, b) => Number(Boolean(a.discarded)) - Number(Boolean(b.discarded)));
 
     // 1. Prioritize exact Netlify App or explicit Meus Links tab across all tabs
-    for (const tab of allTabs) {
+    for (const tab of orderedTabs) {
       if (!tab.url) continue;
       try {
         const u = new URL(tab.url);
+        if (u.hostname.includes("aistudio.google.com")) continue;
         if (
           u.hostname === "links-inteligentes.netlify.app" ||
           u.hostname === configuredHost ||
-          (tab.title && tab.title.includes("Meus Links"))
+          (tab.title && (tab.title.includes("Meus Links") || tab.title.includes("LinkVault")))
         ) {
           return tab;
         }
@@ -205,7 +219,7 @@ async function findAppTab() {
     }
 
     // 2. Fallback to Cloud Run / localhost preview tabs
-    for (const tab of allTabs) {
+    for (const tab of orderedTabs) {
       if (!tab.url) continue;
       try {
         const u = new URL(tab.url);
@@ -245,6 +259,82 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
 
         if (!isAppFrame) return null;
 
+        const queueAndNotifyApp = (linkObj) => {
+          try {
+            const rawQueue = localStorage.getItem("meuslinks_ext_pending_queue") || "[]";
+            let queue;
+            try {
+              queue = JSON.parse(rawQueue);
+            } catch {
+              queue = [];
+            }
+            if (!Array.isArray(queue)) queue = [];
+            if (!queue.some((q) => q && q.id === linkObj.id)) {
+              queue.push(linkObj);
+              localStorage.setItem("meuslinks_ext_pending_queue", JSON.stringify(queue));
+            }
+          } catch {}
+
+          try {
+            const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
+            const db = JSON.parse(rawOffline);
+            if (!Array.isArray(db.links)) db.links = [];
+            if (!db.links.some((l) => l && l.id === linkObj.id)) {
+              db.links.unshift(linkObj);
+              localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+            }
+            localStorage.setItem("meuslinks_has_unsynced_local_data", "true");
+          } catch {}
+
+          // IMPORTANT: window.postMessage passes full object across Chrome MV3 Isolated -> Main world
+          try {
+            window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: linkObj }, "*");
+          } catch {}
+        };
+
+        const buildLinkFromPayload = () => {
+          const payload = options.body ? JSON.parse(options.body) : {};
+          const isFavCat = payload.categoryId === "favorites";
+          let localUserId = "user-demo-1";
+          try {
+            const uRaw = localStorage.getItem("meuslinks_user");
+            if (uRaw) localUserId = JSON.parse(uRaw)?.id || localUserId;
+          } catch {}
+          return {
+            id: "link-" + Date.now(),
+            userId: localUserId,
+            title: payload.title || payload.url,
+            url: payload.url,
+            categoryId: isFavCat ? undefined : payload.categoryId,
+            subcategoryId: isFavCat ? undefined : payload.subcategoryId,
+            tags: payload.tags || ["Extensão"],
+            isFavorite: isFavCat ? true : !!payload.isFavorite,
+            isReadLater: payload.isReadLater !== undefined ? !!payload.isReadLater : true,
+            isArchived: false,
+            clickCount: 0,
+            source: "extension",
+            favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(payload.url)}&sz=128`,
+            createdAt: new Date().toISOString()
+          };
+        };
+
+        // Netlify static hosting uses SPA rewrite (/* -> /index.html 200), save directly via cloud bridge
+        if (endpoint.includes("quick-save") && hostname === "links-inteligentes.netlify.app") {
+          try {
+            const newLink = buildLinkFromPayload();
+            queueAndNotifyApp(newLink);
+            return {
+              executed: true,
+              ok: true,
+              status: 200,
+              contentType: "application/json",
+              data: { success: true, link: newLink }
+            };
+          } catch (e) {
+            return { executed: true, ok: false, status: 0, error: e.message };
+          }
+        }
+
         try {
           const targetUrl = endpoint.startsWith("http")
             ? endpoint
@@ -265,15 +355,11 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
             }
           }
 
-          // Trigger real-time UI updates inside the App
-          if (res.ok && endpoint.includes("quick-save") && data && data.link) {
-            try {
-              window.dispatchEvent(
-                new CustomEvent("meuslinks_external_save", { detail: { link: data.link } })
-              );
-              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: data.link }, "*");
-            } catch {}
+          const isJsonApiSave = res.ok && contentType.includes("application/json") && data && data.link;
 
+          // Backend Express JSON response
+          if (endpoint.includes("quick-save") && isJsonApiSave) {
+            queueAndNotifyApp(data.link);
             return {
               executed: true,
               ok: true,
@@ -283,36 +369,11 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
             };
           }
 
-          // Fallback para hospedagem estática (Netlify sem backend Express)
-          if (!res.ok && endpoint.includes("quick-save")) {
+          // Fallback for static hosting / SPA 200 HTML / 404
+          if (endpoint.includes("quick-save") && !isJsonApiSave) {
             try {
-              const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
-              const db = JSON.parse(rawOffline);
-              if (!Array.isArray(db.links)) db.links = [];
-              const payload = options.body ? JSON.parse(options.body) : {};
-              const isFavCat = payload.categoryId === "favorites";
-              const newLink = {
-                id: "link-" + Date.now(),
-                userId: "user-demo-1",
-                title: payload.title || payload.url,
-                url: payload.url,
-                categoryId: isFavCat ? undefined : payload.categoryId,
-                subcategoryId: isFavCat ? undefined : payload.subcategoryId,
-                tags: payload.tags || ["Extensão"],
-                isFavorite: isFavCat ? true : !!payload.isFavorite,
-                isReadLater: payload.isReadLater !== undefined ? !!payload.isReadLater : true,
-                isArchived: false,
-                clickCount: 0,
-                source: "extension",
-                favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(payload.url)}&sz=128`,
-                createdAt: new Date().toISOString()
-              };
-              db.links.unshift(newLink);
-              localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
-
-              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: newLink } }));
-              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: newLink }, "*");
-
+              const newLink = buildLinkFromPayload();
+              queueAndNotifyApp(newLink);
               return {
                 executed: true,
                 ok: true,
@@ -331,36 +392,10 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
             data
           };
         } catch (fetchErr) {
-          // Fallback offline
           if (endpoint.includes("quick-save")) {
             try {
-              const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
-              const db = JSON.parse(rawOffline);
-              if (!Array.isArray(db.links)) db.links = [];
-              const payload = options.body ? JSON.parse(options.body) : {};
-              const isFavCat = payload.categoryId === "favorites";
-              const newLink = {
-                id: "link-" + Date.now(),
-                userId: "user-demo-1",
-                title: payload.title || payload.url,
-                url: payload.url,
-                categoryId: isFavCat ? undefined : payload.categoryId,
-                subcategoryId: isFavCat ? undefined : payload.subcategoryId,
-                tags: payload.tags || ["Extensão"],
-                isFavorite: isFavCat ? true : !!payload.isFavorite,
-                isReadLater: payload.isReadLater !== undefined ? !!payload.isReadLater : true,
-                isArchived: false,
-                clickCount: 0,
-                source: "extension",
-                favicon: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(payload.url)}&sz=128`,
-                createdAt: new Date().toISOString()
-              };
-              db.links.unshift(newLink);
-              localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
-
-              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: newLink } }));
-              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: newLink }, "*");
-
+              const newLink = buildLinkFromPayload();
+              queueAndNotifyApp(newLink);
               return {
                 executed: true,
                 ok: true,
@@ -590,8 +625,13 @@ async function detectAndSyncFromTabs(interactive = false) {
       if (session.user) {
         appState.user = session.user;
       }
-      if (session.origin && !session.origin.includes("aistudio.google.com")) {
-        appState.serverUrl = session.origin;
+      if (session.origin) {
+        try {
+          const originHost = new URL(session.origin).hostname;
+          if (isAllowedAppHost(originHost)) {
+            appState.serverUrl = session.origin;
+          }
+        } catch {}
       }
       if (session.supabaseUrl) appState.supabaseUrl = session.supabaseUrl;
       if (session.supabaseKey) appState.supabaseKey = session.supabaseKey;
@@ -798,7 +838,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Read saved settings directly from persistent storage (Available on ANY website!)
   storage.get(["authToken", "user", "serverUrl", "categories", "subcategories", "supabaseUrl", "supabaseKey"], async (data) => {
     if (data.serverUrl) {
-      appState.serverUrl = data.serverUrl.replace(/\/+$/, "");
+      const cleanedServerUrl = data.serverUrl.replace(/\/+$/, "");
+      try {
+        const storedHost = new URL(cleanedServerUrl).hostname;
+        appState.serverUrl = isAllowedAppHost(storedHost) ? cleanedServerUrl : DEFAULT_SERVER_URL;
+      } catch {
+        appState.serverUrl = DEFAULT_SERVER_URL;
+      }
     }
     if (serverUrlInput) {
       serverUrlInput.value = appState.serverUrl;
@@ -1255,15 +1301,26 @@ async function handleSaveLink(e) {
       }
     }
 
-    // 2. Attempt 2: If App tab was not open, store link in pending_links to merge instantly when App opens
+    // 2. Attempt 2: If App tab was not open or unavailable, store link in pending_links to merge when App opens/wakes
     if (!savedSuccessfully) {
       await new Promise((resolve) => {
         storage.get(["pending_links"], (res) => {
           const pending = Array.isArray(res.pending_links) ? res.pending_links : [];
-          pending.unshift(newLinkObject);
+          if (!pending.some((p) => p && p.id === newLinkObject.id)) {
+            pending.unshift(newLinkObject);
+          }
           storage.set({ pending_links: pending }, resolve);
         });
       });
+
+      // Notify any matching App tab to process pending_links immediately
+      if (appTab && appTab.id && typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
+        try {
+          chrome.tabs.sendMessage(appTab.id, { action: "PROCESS_PENDING_LINKS" }, () => {
+            void chrome.runtime.lastError;
+          });
+        } catch {}
+      }
       savedSuccessfully = true;
 
       // 3. Attempt 3: Direct Supabase sync if configured

@@ -8,23 +8,19 @@
   function isMeusLinksApp() {
     try {
       const host = window.location.hostname;
+      if (host === "links-inteligentes.netlify.app") {
+        return true;
+      }
       if (
-        host.includes("netlify.app") ||
-        host.includes("vercel.app") ||
-        host.includes("run.app") ||
-        host === "localhost" ||
-        host === "127.0.0.1" ||
-        host.includes("aistudio.google.com")
+        document.title &&
+        (document.title.includes("Meus Links") || document.title.includes("LinkVault"))
       ) {
         return true;
       }
-      if (document.title && (document.title.includes("Meus Links") || document.title.includes("LinkVault"))) {
-        return true;
-      }
       if (
+        localStorage.getItem("meuslinks_offline_data") !== null ||
         localStorage.getItem("meuslinks_categories") !== null ||
-        localStorage.getItem("meuslinks_token") !== null ||
-        localStorage.getItem("meuslinks_offline_data") !== null
+        localStorage.getItem("meuslinks_token") !== null
       ) {
         return true;
       }
@@ -83,12 +79,27 @@
     return [];
   }
 
-  // Sincroniza sessão, categorias e subcategorias atuais com o armazenamento da extensão
-  function syncWithExtension(customCats = null, customSubs = null) {
+  let lastSyncSignature = "";
+
+  // Sincroniza sessão, categorias e subcategorias atuais com o armazenamento da extensão (somente quando houver alteração)
+  function syncWithExtension(customCats = null, customSubs = null, force = false) {
     const token = getLocalToken();
     const user = getLocalUser();
     const categories = customCats !== null && Array.isArray(customCats) ? customCats : getLocalCategories();
     const subcategories = customSubs !== null && Array.isArray(customSubs) ? customSubs : getLocalSubcategories();
+
+    const sig = JSON.stringify({
+      token: token || null,
+      userId: user ? user.id : null,
+      origin: window.location.origin,
+      categories,
+      subcategories
+    });
+
+    if (!force && sig === lastSyncSignature) {
+      return;
+    }
+    lastSyncSignature = sig;
 
     const supaUrl = localStorage.getItem("meuslinks_supabase_url");
     const supaKey = localStorage.getItem("meuslinks_supabase_anon_key") || localStorage.getItem("meuslinks_supabase_key");
@@ -123,11 +134,40 @@
     }
   }
 
-  // Sincroniza links que possam ter sido salvos na extensão enquanto o App estava fechado
+  function appendToExtPendingQueue(newLinks) {
+    try {
+      const list = Array.isArray(newLinks) ? newLinks : [newLinks];
+      const rawQueue = localStorage.getItem("meuslinks_ext_pending_queue") || "[]";
+      let queue;
+      try {
+        queue = JSON.parse(rawQueue);
+      } catch {
+        queue = [];
+      }
+      if (!Array.isArray(queue)) queue = [];
+
+      list.forEach((lnk) => {
+        if (lnk && lnk.url && !queue.some((q) => q.id === lnk.id)) {
+          queue.push(lnk);
+        }
+      });
+      localStorage.setItem("meuslinks_ext_pending_queue", JSON.stringify(queue));
+    } catch {}
+  }
+
+  // Sincroniza links salvos na extensão enquanto o App estava fechado ou em outra aba
   function processPendingLinks() {
     try {
       chrome.storage.local.get(["pending_links"], (res) => {
         if (res && Array.isArray(res.pending_links) && res.pending_links.length > 0) {
+          const pendingList = res.pending_links.filter((l) => l && l.url);
+          if (pendingList.length === 0) {
+            chrome.storage.local.remove(["pending_links"]);
+            return;
+          }
+
+          appendToExtPendingQueue(pendingList);
+
           const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
           let db;
           try {
@@ -138,18 +178,24 @@
           if (!Array.isArray(db.links)) db.links = [];
 
           let hasNew = false;
-          res.pending_links.forEach((link) => {
-            if (!db.links.some((l) => l.url === link.url || l.id === link.id)) {
+          pendingList.forEach((link) => {
+            if (!db.links.some((l) => l.id === link.id)) {
               db.links.unshift(link);
               hasNew = true;
-              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link } }));
-              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link }, "*");
             }
           });
 
           if (hasNew) {
             localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+            localStorage.setItem("meuslinks_has_unsynced_local_data", "true");
           }
+
+          // IMPORTANT: window.postMessage preserves payload across Chrome MV3 Isolated -> Main world
+          window.postMessage(
+            { type: "MEUS_LINKS_DATA_CHANGED", links: pendingList, link: pendingList[0] },
+            "*"
+          );
+
           chrome.storage.local.remove(["pending_links"]);
         }
       });
@@ -158,18 +204,27 @@
     }
   }
 
+  // Processa pending_links imediatamente caso outra aba adicione enquanto o App está aberto
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === "local" && changes.pending_links && Array.isArray(changes.pending_links.newValue) && changes.pending_links.newValue.length > 0) {
+        processPendingLinks();
+      }
+    });
+  } catch {}
+
   // Executa verificação inicial
   syncWithExtension();
   processPendingLinks();
 
-  // Verificação contínua periódica a cada 2 segundos para garantir sincronização instantânea
+  // Verificação periódica leve (dispara apenas se algo mudou)
   setInterval(() => {
     syncWithExtension();
-  }, 2000);
+  }, 5000);
 
   setInterval(() => {
     processPendingLinks();
-  }, 4000);
+  }, 3000);
 
   // Monitora foco e visibilidade
   window.addEventListener("focus", () => {
@@ -256,11 +311,13 @@
             }
           }
 
-          // Se a requisição foi bem sucedida na API do servidor
-          if (res.ok && url.includes("quick-save")) {
+          const isJsonApiSave = res.ok && contentType.includes("application/json") && data && data.link;
+
+          // Se a requisição foi bem sucedida na API JSON do servidor
+          if (url.includes("quick-save") && isJsonApiSave) {
             try {
-              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: data?.link } }));
-              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: data?.link }, "*");
+              appendToExtPendingQueue(data.link);
+              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: data.link }, "*");
             } catch {}
 
             sendResponse({
@@ -272,8 +329,8 @@
             return;
           }
 
-          // Se falhou (ex: 404 na Netlify porque o backend é estático), salvar diretamente no localStorage local do App
-          if (!res.ok && url.includes("quick-save")) {
+          // Fallback para hospedagem estática (ex: Netlify SPA retorna 200 text/html ou 404)
+          if (url.includes("quick-save") && !isJsonApiSave) {
             try {
               const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
               const db = JSON.parse(rawOffline);
@@ -298,26 +355,8 @@
               };
               db.links.unshift(newLink);
               localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+              appendToExtPendingQueue(newLink);
 
-              // Tenta persistir no Supabase do cliente se configurado
-              try {
-                const supaUrl = localStorage.getItem("meuslinks_supabase_url");
-                const supaKey = localStorage.getItem("meuslinks_supabase_anon_key") || localStorage.getItem("meuslinks_supabase_key");
-                if (supaUrl && supaKey) {
-                  fetch(`${supaUrl}/rest/v1/links`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      apikey: supaKey,
-                      Authorization: `Bearer ${supaKey}`,
-                      Prefer: "resolution=merge-duplicates"
-                    },
-                    body: JSON.stringify(newLink)
-                  }).catch(() => {});
-                }
-              } catch {}
-
-              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: newLink } }));
               window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: newLink }, "*");
 
               sendResponse({
@@ -340,7 +379,7 @@
           });
         })
         .catch((err) => {
-          // Erro de rede: tenta salvar localmente no App
+          // Erro de rede: salva na fila durável e notifica o App via postMessage
           if (url.includes("quick-save")) {
             try {
               const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
@@ -366,8 +405,8 @@
               };
               db.links.unshift(newLink);
               localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+              appendToExtPendingQueue(newLink);
 
-              window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: newLink } }));
               window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: newLink }, "*");
 
               sendResponse({
@@ -390,9 +429,15 @@
       return true; // Mantém o canal aberto para resposta assíncrona
     }
 
+    if (request.action === "PROCESS_PENDING_LINKS") {
+      processPendingLinks();
+      sendResponse({ ok: true });
+      return false;
+    }
+
     if (request.action === "NOTIFY_LINK_SAVED") {
       try {
-        window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link: request.link } }));
+        if (request.link) appendToExtPendingQueue(request.link);
         window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link: request.link }, "*");
       } catch {}
       sendResponse({ ok: true });
@@ -400,7 +445,7 @@
     }
 
     if (request.action === "FORCE_SYNC") {
-      syncWithExtension();
+      syncWithExtension(null, null, true);
       sendResponse({
         ok: true,
         token: getLocalToken(),

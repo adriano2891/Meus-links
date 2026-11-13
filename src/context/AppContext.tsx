@@ -248,6 +248,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const firebaseUserRef = useRef<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const isAuthReadyRef = useRef(false);
   const [authDomainError, setAuthDomainError] = useState<string | null>(null);
 
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -560,6 +561,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               persistCloudCache();
             }
           });
+
+          // Flush any links queued by the extension while Auth was initializing or App was closed
+          isAuthReadyRef.current = true;
+          window.dispatchEvent(new CustomEvent("meuslinks_flush_ext_queue"));
         } catch (err: any) {
           console.error("Firebase cloud initialization error:", err);
           const msg = String(err?.message || "");
@@ -579,11 +584,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await refreshData();
         } finally {
           setIsLoading(false);
+          isAuthReadyRef.current = true;
           setIsAuthReady(true);
         }
       } else {
         await refreshData();
+        isAuthReadyRef.current = true;
         setIsAuthReady(true);
+        window.dispatchEvent(new CustomEvent("meuslinks_flush_ext_queue"));
       }
     });
 
@@ -593,33 +601,114 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [addToast, persistCloudCache, refreshData]);
 
-  // Real-time synchronization listener for extension link saves
+  // Real-time synchronization listener & durable queue drainer for extension link saves
   const recentExtSaveIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const syncSavedLinkFromExtension = async (savedLink: any) => {
-      if (!savedLink) return;
+    const EXT_QUEUE_KEY = "meuslinks_ext_pending_queue";
+
+    const removeFromExtQueue = (idsToRemove: Set<string>) => {
+      if (idsToRemove.size === 0) return;
+      try {
+        const raw = localStorage.getItem(EXT_QUEUE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        const remaining = parsed.filter((item: any) => item && !idsToRemove.has(item.id));
+        if (remaining.length === 0) {
+          localStorage.removeItem(EXT_QUEUE_KEY);
+        } else {
+          localStorage.setItem(EXT_QUEUE_KEY, JSON.stringify(remaining));
+        }
+      } catch {}
+    };
+
+    const syncSavedLinkFromExtension = async (savedLink: any, silentToast = false): Promise<boolean> => {
+      if (!savedLink || !savedLink.url) return false;
       const dedupKey = savedLink.id || `${savedLink.url || ""}:${savedLink.categoryId || ""}`;
-      if (dedupKey && recentExtSaveIdsRef.current.has(dedupKey)) return;
+      if (dedupKey && recentExtSaveIdsRef.current.has(dedupKey)) return false;
       if (dedupKey) {
         recentExtSaveIdsRef.current.add(dedupKey);
-        setTimeout(() => recentExtSaveIdsRef.current.delete(dedupKey), 5000);
+        setTimeout(() => recentExtSaveIdsRef.current.delete(dedupKey), 6000);
       }
 
       const fbUser = firebaseUserRef.current;
       if (fbUser) {
         try {
-          await upsertFirestoreLink(fbUser.uid, savedLink, true);
+          const normalizedLink = {
+            ...savedLink,
+            categoryId: savedLink.categoryId === "favorites" ? undefined : savedLink.categoryId,
+            subcategoryId: savedLink.categoryId === "favorites" ? undefined : savedLink.subcategoryId
+          };
+          await upsertFirestoreLink(fbUser.uid, normalizedLink, true);
+          if (savedLink.id) {
+            removeFromExtQueue(new Set([savedLink.id]));
+          }
         } catch (err) {
           console.error("Failed to sync extension link to Firestore:", err);
+          return false;
         }
+      } else if (!isAuthReadyRef.current) {
+        // Wait until Firebase Auth state finishes initializing; keep in durable queue
+        try {
+          const raw = localStorage.getItem(EXT_QUEUE_KEY);
+          const queued = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(queued) && !queued.some((q: any) => q.id === savedLink.id)) {
+            queued.push(savedLink);
+            localStorage.setItem(EXT_QUEUE_KEY, JSON.stringify(queued));
+          }
+        } catch {}
+        return false;
       } else {
+        // Offline / local-only mode after auth resolution
+        try {
+          const rawOffline = localStorage.getItem("meuslinks_offline_data") || "{}";
+          const db = JSON.parse(rawOffline);
+          if (!Array.isArray(db.links)) db.links = [];
+          if (!db.links.some((l: any) => l.id === savedLink.id)) {
+            db.links.unshift(savedLink);
+            localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+          }
+        } catch {}
         await refreshData();
+        if (savedLink.id) {
+          removeFromExtQueue(new Set([savedLink.id]));
+        }
       }
-      addToast({
-        type: "success",
-        title: "Link salvo via Extensão!",
-        message: savedLink.title || savedLink.url
-      });
+
+      if (!silentToast) {
+        addToast({
+          type: "success",
+          title: "Link salvo via Extensão!",
+          message: savedLink.title || savedLink.url
+        });
+      }
+      return true;
+    };
+
+    const drainExtensionPendingQueue = async () => {
+      try {
+        if (!isAuthReadyRef.current) return;
+        const raw = localStorage.getItem(EXT_QUEUE_KEY);
+        if (!raw) return;
+        const queued = JSON.parse(raw);
+        if (!Array.isArray(queued) || queued.length === 0) return;
+
+        let syncedCount = 0;
+        for (const item of queued) {
+          const ok = await syncSavedLinkFromExtension(item, true);
+          if (ok) syncedCount++;
+        }
+
+        if (syncedCount > 0) {
+          addToast({
+            type: "success",
+            title: syncedCount === 1 ? "Link salvo via Extensão!" : `${syncedCount} links salvos via Extensão!`,
+            message: queued[0]?.title || queued[0]?.url || "Sincronizado na nuvem com sucesso."
+          });
+        }
+      } catch (err) {
+        console.warn("Could not drain extension queue:", err);
+      }
     };
 
     const handleExternalSave = (e: any) => {
@@ -627,25 +716,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (savedLink) {
         syncSavedLinkFromExtension(savedLink);
       } else {
-        refreshData();
+        drainExtensionPendingQueue();
       }
     };
 
     const handleWindowMessage = (e: MessageEvent) => {
       if (e.data && e.data.type === "MEUS_LINKS_DATA_CHANGED") {
-        if (e.data.link) {
+        if (Array.isArray(e.data.links) && e.data.links.length > 0) {
+          e.data.links.forEach((lnk: any) => syncSavedLinkFromExtension(lnk));
+        } else if (e.data.link) {
           syncSavedLinkFromExtension(e.data.link);
         } else {
-          refreshData();
+          drainExtensionPendingQueue();
         }
       }
     };
 
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === EXT_QUEUE_KEY && e.newValue) {
+        drainExtensionPendingQueue();
+      }
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        drainExtensionPendingQueue();
+      }
+    };
+
     window.addEventListener("meuslinks_external_save", handleExternalSave);
+    window.addEventListener("meuslinks_flush_ext_queue", drainExtensionPendingQueue);
     window.addEventListener("message", handleWindowMessage);
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("focus", drainExtensionPendingQueue);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    // Drain immediately on mount in case extension queued links before React mounted
+    drainExtensionPendingQueue();
+
     return () => {
       window.removeEventListener("meuslinks_external_save", handleExternalSave);
+      window.removeEventListener("meuslinks_flush_ext_queue", drainExtensionPendingQueue);
       window.removeEventListener("message", handleWindowMessage);
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("focus", drainExtensionPendingQueue);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
   }, [refreshData, addToast]);
 
