@@ -450,7 +450,9 @@ export async function upsertFirestoreLink(
 
     if (!existsInDb) {
       const url = clampStr(link.url || "https://", 2048) || "https://";
-      const title = clampStr(link.title || url, 300) || "Link";
+      const title = isShortcut
+        ? clampStr(link.title ?? "", 300)
+        : (clampStr(link.title || url, 300) || "Link");
       const payload = {
         id,
         userId: safeUid,
@@ -535,7 +537,13 @@ export async function upsertFirestoreLink(
         updatePayload.collectionId = link.collectionId ? sanitizeFirestoreId(link.collectionId, "col") : null;
       }
     }
-    if (link.title !== undefined) updatePayload.title = clampStr(link.title, 300) || "Link";
+    if (link.title !== undefined) {
+      const targetIsShortcut =
+        link.isShortcut !== undefined ? Boolean(link.isShortcut) : Boolean(snap?.data()?.isShortcut);
+      updatePayload.title = targetIsShortcut
+        ? clampStr(link.title, 300)
+        : (clampStr(link.title, 300) || "Link");
+    }
     if (link.url !== undefined) updatePayload.url = clampStr(link.url, 2048) || "https://";
     if (link.description !== undefined) updatePayload.description = clampOptStr(link.description, 1000);
     if (link.tags !== undefined) updatePayload.tags = sanitizeTags(link.tags);
@@ -787,7 +795,7 @@ function mapDocToLink(d: Record<string, any>): LinkItem {
     categoryId: isShortcut ? undefined : (d.categoryId || undefined),
     subcategoryId: isShortcut ? undefined : (d.subcategoryId || undefined),
     collectionId: isShortcut ? undefined : (d.collectionId || undefined),
-    title: d.title || "Sem título",
+    title: isShortcut ? (typeof d.title === "string" ? d.title : "") : (d.title || "Sem título"),
     url: d.url || "",
     description: d.description || "",
     tags: Array.isArray(d.tags) ? d.tags : [],

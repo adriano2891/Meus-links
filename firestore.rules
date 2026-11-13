@@ -145,7 +145,7 @@ service cloud.firestore {
         && isOptString(data, 'categoryId', 128)
         && isOptString(data, 'subcategoryId', 128)
         && isOptString(data, 'collectionId', 128)
-        && data.title is string && data.title.size() >= 1 && data.title.size() <= 300
+        && data.title is string && (data.isShortcut == true || data.title.size() >= 1) && data.title.size() <= 300
         && data.url is string && data.url.size() >= 1 && data.url.size() <= 2048
         && isOptString(data, 'description', 1000)
         && isValidTags(data)

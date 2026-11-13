@@ -86,7 +86,7 @@
         "categoryId": { "type": "string", "maxLength": 128 },
         "subcategoryId": { "type": "string", "maxLength": 128 },
         "collectionId": { "type": "string", "maxLength": 128 },
-        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "title": { "type": "string", "maxLength": 300, "description": "Optional when isShortcut is true for icon-only bar shortcuts" },
         "url": { "type": "string", "minLength": 1, "maxLength": 2048 },
         "description": { "type": "string", "maxLength": 1000 },
         "tags": { "type": "array" },

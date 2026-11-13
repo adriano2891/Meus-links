@@ -49,6 +49,9 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
     }
   }
 
+  const hasTitle = Boolean(link.title && link.title.trim().length > 0);
+  const tooltipLabel = hasTitle ? link.title : link.url;
+
   return (
     <div
       draggable={isEditMode}
@@ -58,10 +61,12 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
       onClick={onClick}
       title={
         isEditMode
-          ? `Clique para editar "${link.title}"`
-          : `${link.title}\n${link.url} (${link.clickCount || 0} acessos)`
+          ? `Clique para editar "${tooltipLabel}"`
+          : `${tooltipLabel}\n${hasTitle ? `${link.url} ` : ""}(${link.clickCount || 0} acessos)`
       }
-      className={`group inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all shrink-0 select-none ${
+      className={`group inline-flex items-center ${
+        hasTitle ? "gap-1.5 px-2.5 py-1.5" : "gap-1 px-2 py-1.5 justify-center"
+      } rounded-lg text-xs font-medium cursor-pointer transition-all shrink-0 select-none ${
         isEditMode
           ? "bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 shadow-xs hover:bg-amber-100 dark:hover:bg-amber-900/50"
           : "bg-slate-100/90 hover:bg-blue-50 dark:bg-slate-800/80 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700/70 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-xs"
@@ -76,19 +81,21 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
       {faviconUrl && !imgError ? (
         <img
           src={faviconUrl}
-          alt=""
+          alt={hasTitle ? "" : link.url}
           className="w-4 h-4 rounded-xs shrink-0 object-contain pointer-events-none"
           referrerPolicy="no-referrer"
           onError={() => setImgError(true)}
         />
       ) : (
-        <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        <Globe className="w-4 h-4 text-slate-400 shrink-0" />
       )}
 
-      {/* Title with responsive maximum width */}
-      <span className="whitespace-nowrap max-w-[130px] sm:max-w-[170px] md:max-w-[220px] truncate font-medium">
-        {link.title}
-      </span>
+      {/* Title (optional for icon-only quick links) */}
+      {hasTitle && (
+        <span className="whitespace-nowrap max-w-[130px] sm:max-w-[170px] md:max-w-[220px] truncate font-medium">
+          {link.title}
+        </span>
+      )}
 
       {/* Access Count badge */}
       {link.clickCount > 0 && !isEditMode && (
@@ -118,7 +125,9 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
           </button>
         </div>
       ) : (
-        <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 hidden group-hover:inline-block transition-all ml-0.5 shrink-0" />
+        hasTitle && (
+          <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 hidden group-hover:inline-block transition-all ml-0.5 shrink-0" />
+        )
       )}
     </div>
   );

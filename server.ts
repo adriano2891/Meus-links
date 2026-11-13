@@ -735,7 +735,9 @@ app.post("/api/links", async (req, res) => {
     categoryId: isShortcut ? undefined : (req.body.categoryId || undefined),
     subcategoryId: isShortcut ? undefined : (req.body.subcategoryId || undefined),
     collectionId: isShortcut ? undefined : (req.body.collectionId || undefined),
-    title: deriveFallbackTitle(req.body.url, req.body.title),
+    title: isShortcut
+      ? (typeof req.body.title === "string" ? req.body.title.trim() : "")
+      : deriveFallbackTitle(req.body.url, req.body.title),
     url: req.body.url,
     description: req.body.description || "",
     tags: Array.isArray(req.body.tags) ? req.body.tags : [],
@@ -822,11 +824,10 @@ app.put("/api/links/:id", async (req, res) => {
     db.links.push(existing);
     index = db.links.length - 1;
   }
-  const finalTitle = req.body.title !== undefined
-    ? deriveFallbackTitle(req.body.url || existing.url, req.body.title)
-    : existing.title;
-
   const isShortcut = req.body.isShortcut !== undefined ? !!req.body.isShortcut : !!existing.isShortcut;
+  const finalTitle = req.body.title !== undefined
+    ? (isShortcut ? String(req.body.title).trim() : deriveFallbackTitle(req.body.url || existing.url, req.body.title))
+    : existing.title;
 
   const updated = {
     ...existing,

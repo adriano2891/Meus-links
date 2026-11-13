@@ -86,7 +86,7 @@ export const AddEditLinkModal: React.FC = () => {
   useEffect(() => {
     if (editingLink) {
       setUrl(editingLink.url);
-      setTitle(editingLink.title);
+      setTitle(editingLink.title || "");
       setDescription(editingLink.description || "");
       const isShort = !!editingLink.isShortcut;
       setIsShortcut(isShort);
@@ -143,15 +143,15 @@ export const AddEditLinkModal: React.FC = () => {
       setDuplicateWarning(null);
     }
 
-    // Auto scrape if title is empty
-    if (!title) {
+    // Auto scrape metadata (skip overwriting empty title for icon-only shortcuts)
+    if (!title && (!isShortcut || !favicon)) {
       setIsScraping(true);
       try {
         const metadata = await api.scrapeMetadata(url);
         if (metadata.formattedUrl && !url.startsWith("http")) {
           setUrl(metadata.formattedUrl);
         }
-        if (metadata.title) setTitle(metadata.title);
+        if (!isShortcut && metadata.title) setTitle(metadata.title);
         if (metadata.description && !description) setDescription(metadata.description);
         if (metadata.image && !previewImage) setPreviewImage(metadata.image);
         if (metadata.favicon && !favicon) setFavicon(metadata.favicon);
@@ -254,7 +254,7 @@ export const AddEditLinkModal: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const resolvedTitle = title.trim() || deriveCleanTitle(url);
+      const resolvedTitle = isShortcut ? title.trim() : (title.trim() || deriveCleanTitle(url));
       const linkPayload: Partial<LinkItem> = {
         url: url.trim(),
         title: resolvedTitle,
@@ -420,7 +420,7 @@ export const AddEditLinkModal: React.FC = () => {
               type="text"
               placeholder={
                 isShortcut
-                  ? "Opcional (usará o nome do site se vazio, ex: Notion)"
+                  ? "Opcional — deixe vazio para exibir só o ícone"
                   : "Nome ou título identificador"
               }
               value={title}
@@ -428,10 +428,9 @@ export const AddEditLinkModal: React.FC = () => {
               required={!isShortcut}
               className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
             />
-            {isShortcut && !title.trim() && url.trim() && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-                <span>Nome automático para o atalho:</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">{deriveCleanTitle(url)}</span>
+            {isShortcut && !title.trim() && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Sem título: este atalho será exibido apenas com o ícone na barra superior.
               </p>
             )}
           </div>

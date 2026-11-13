@@ -539,7 +539,7 @@ export const api = {
     const newLink: LinkItem = {
       id: link.id || `link-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       userId: user.id,
-      title: link.title || "Sem título",
+      title: isShortcut ? (typeof link.title === "string" ? link.title.trim() : "") : (link.title || "Sem título"),
       url: link.url || "",
       description: link.description || "",
       categoryId: isShortcut ? undefined : (link.categoryId || undefined),
