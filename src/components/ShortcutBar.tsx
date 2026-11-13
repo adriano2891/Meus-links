@@ -25,6 +25,66 @@ interface ShortcutItemProps {
   onUnpin: (e: React.MouseEvent) => void;
 }
 
+function deriveSiteTitle(rawUrl: string): string {
+  try {
+    const clean = /^https?:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : `https://${rawUrl.trim()}`;
+    const host = new URL(clean).hostname.toLowerCase().replace(/^www\./, "");
+
+    const knownSites: Record<string, string> = {
+      "google.com": "Google",
+      "google.com.br": "Google",
+      "mail.google.com": "Gmail",
+      "aistudio.google.com": "Google AI Studio",
+      "gemini.google.com": "Gemini",
+      "drive.google.com": "Google Drive",
+      "docs.google.com": "Google Docs",
+      "web.whatsapp.com": "WhatsApp Web",
+      "whatsapp.com": "WhatsApp",
+      "youtube.com": "YouTube",
+      "youtu.be": "YouTube",
+      "instagram.com": "Instagram",
+      "facebook.com": "Facebook",
+      "discord.com": "Discord",
+      "tiktok.com": "TikTok",
+      "chatgpt.com": "ChatGPT",
+      "chat.openai.com": "ChatGPT",
+      "openai.com": "OpenAI",
+      "outlook.live.com": "Outlook",
+      "outlook.office.com": "Outlook",
+      "outlook.office365.com": "Outlook",
+      "m365.cloud.microsoft": "Microsoft 365",
+      "microsoft365.com": "Microsoft 365",
+      "office.com": "Microsoft 365",
+      "x.com": "X",
+      "twitter.com": "X",
+      "github.com": "GitHub",
+      "linkedin.com": "LinkedIn",
+      "notion.so": "Notion",
+      "figma.com": "Figma",
+      "canva.com": "Canva",
+      "capcut.com": "CapCut",
+      "claude.ai": "Claude",
+      "netlify.com": "Netlify",
+      "app.netlify.com": "Netlify"
+    };
+
+    if (knownSites[host]) return knownSites[host];
+
+    const parts = host.split(".").filter(Boolean);
+    const ignoredPrefixes = new Set(["www", "app", "m", "web", "portal", "my"]);
+    const basePart =
+      parts.length >= 2 && ignoredPrefixes.has(parts[0])
+        ? parts[1]
+        : parts[0] || host;
+
+    return basePart
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return "Site";
+  }
+}
+
 const ShortcutItem: React.FC<ShortcutItemProps> = ({
   link,
   isEditMode,
@@ -53,7 +113,7 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
   }
 
   const hasTitle = Boolean(link.title && link.title.trim().length > 0);
-  const tooltipLabel = hasTitle ? link.title : link.url;
+  const tooltipLabel = hasTitle ? link.title.trim() : deriveSiteTitle(link.url);
 
   return (
     <div
@@ -62,11 +122,7 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
       onDragOver={onDragOver}
       onDrop={(e) => onDrop(e, link.id)}
       onClick={onClick}
-      title={
-        isEditMode
-          ? `Clique para editar "${tooltipLabel}"`
-          : `${tooltipLabel}\n${hasTitle ? `${link.url} ` : ""}(${link.clickCount || 0} acessos)`
-      }
+      title={isEditMode ? `Clique para editar "${tooltipLabel}"` : tooltipLabel}
       className={`group inline-flex items-center ${
         hasTitle ? "gap-2 px-3 py-1.5" : "gap-1.5 px-2.5 py-2 justify-center"
       } rounded-xl text-xs font-medium cursor-pointer transition-all shrink-0 select-none ${
@@ -84,7 +140,7 @@ const ShortcutItem: React.FC<ShortcutItemProps> = ({
       {faviconUrl && !imgError ? (
         <img
           src={faviconUrl}
-          alt={hasTitle ? "" : link.url}
+          alt={hasTitle ? "" : tooltipLabel}
           className={`${hasTitle ? "w-5 h-5" : "w-7 h-7"} rounded-sm shrink-0 object-contain pointer-events-none transition-transform duration-150 group-hover:scale-105`}
           referrerPolicy="no-referrer"
           onError={() => setImgError(true)}
