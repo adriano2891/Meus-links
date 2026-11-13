@@ -415,7 +415,9 @@ export const api = {
         const catMap = new Map<string, CategoryItem>();
         offline.categories.forEach((c) => catMap.set(c.id, c));
         data.categories.forEach((c: CategoryItem) => catMap.set(c.id, { ...catMap.get(c.id), ...c }));
-        const mergedCategories = Array.from(catMap.values());
+        const mergedCategories = Array.from(catMap.values()).sort(
+          (a, b) => (a.order ?? 0) - (b.order ?? 0)
+        );
 
         // Merge subcategories by ID
         const subMap = new Map<string, SubcategoryItem>();
@@ -477,7 +479,7 @@ export const api = {
         const merged: OfflineStorageSchema = {
           user,
           collections: supaData.collections.length > 0 ? supaData.collections : offline.collections,
-          categories: Array.from(catMap.values()),
+          categories: Array.from(catMap.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
           subcategories: Array.from(subMap.values()),
           links: Array.from(linkMap.values()),
           archivedLinks: offline.archivedLinks,
@@ -494,7 +496,11 @@ export const api = {
     }
 
     // 3. Fallback to LocalStorage offline store
-    return getOfflineDb();
+    const offlineDb = getOfflineDb();
+    offlineDb.categories = [...offlineDb.categories].sort(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0)
+    );
+    return offlineDb;
   },
 
   // Links
@@ -826,6 +832,48 @@ export const api = {
     db.categories = db.categories.map((c) => (c.id === id ? updated : c));
     saveOfflineDb(db);
     return updated;
+  },
+
+  async reorderCategories(orderedCategoryIds: string[]): Promise<{ success: boolean }> {
+    const db = getOfflineDb();
+    const orderMap = new Map(orderedCategoryIds.map((id, index) => [id, index + 1]));
+    const now = new Date().toISOString();
+    db.categories = db.categories
+      .map((c) =>
+        orderMap.has(c.id)
+          ? { ...c, order: orderMap.get(c.id)!, updatedAt: now }
+          : c
+      )
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    saveOfflineDb(db);
+
+    try {
+      const base = getApiBase();
+      await safeFetchJson(`${base}/categories/reorder`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeader() },
+        body: JSON.stringify({ orderedCategoryIds })
+      });
+    } catch {
+      // Static/offline mode already updated localStorage above
+      const client = getClientSupabase();
+      if (client) {
+        try {
+          for (const cat of db.categories) {
+            if (orderMap.has(cat.id)) {
+              await client
+                .from("categories")
+                .update({ order: cat.order })
+                .eq("id", cat.id);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return { success: true };
   },
 
   async deleteCategory(

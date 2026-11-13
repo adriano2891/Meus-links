@@ -209,6 +209,7 @@ interface AppContextType {
 
   createCategory: (cat: Partial<CategoryItem>) => Promise<CategoryItem>;
   updateCategory: (id: string, cat: Partial<CategoryItem>) => Promise<CategoryItem>;
+  reorderCategories: (orderedIds: string[]) => Promise<void>;
   deleteCategoryWithChoice: (id: string, handleLinks: "delete_links" | "move_links" | "keep_uncategorized", targetCategoryId?: string) => Promise<void>;
 
   createSubcategory: (sub: { categoryId: string; name: string; url: string }) => Promise<SubcategoryItem>;
@@ -1173,6 +1174,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const reorderCategories = async (orderedIds: string[]) => {
+    const orderMap = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
+    const prevCategories = categories;
+    const reordered = [...prevCategories]
+      .map((cat) => (orderMap.has(cat.id) ? { ...cat, order: orderMap.get(cat.id)! } : cat))
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    // Optimistic update for instant drag feedback and localStorage sync
+    setCategories(reordered);
+    cloudCacheRef.current.categories = reordered;
+    persistCloudCache();
+
+    const fbUser = firebaseUserRef.current;
+    if (fbUser) {
+      try {
+        const changed = reordered.filter((cat) => {
+          const prev = prevCategories.find((p) => p.id === cat.id);
+          return prev && prev.order !== cat.order;
+        });
+        await Promise.all(
+          changed.map((cat) =>
+            upsertFirestoreCategory(fbUser.uid, { id: cat.id, order: cat.order })
+          )
+        );
+        addToast({
+          type: "success",
+          title: "Ordem das categorias salva!",
+          message: "Nova posição sincronizada na nuvem."
+        });
+      } catch (err) {
+        console.error("Failed to persist category order:", err);
+        addToast({
+          type: "error",
+          title: "Erro ao salvar nova posição",
+          message: "Tente reorganizar novamente."
+        });
+      }
+      return;
+    }
+
+    await api.reorderCategories(orderedIds);
+    addToast({
+      type: "success",
+      title: "Ordem das categorias atualizada!"
+    });
+  };
+
   // Categories Handlers
   const createCategory = async (catData: Partial<CategoryItem>): Promise<CategoryItem> => {
     const fbUser = firebaseUserRef.current;
@@ -1863,6 +1911,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsShortcutEditMode,
         createCategory,
         updateCategory,
+        reorderCategories,
         deleteCategoryWithChoice,
         createSubcategory,
         updateSubcategory,

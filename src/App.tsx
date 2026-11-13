@@ -93,10 +93,59 @@ const MainContent: React.FC = () => {
     isCloudSynced,
     isAuthReady,
     isLoading,
-    setIsAuthModalOpen
+    setIsAuthModalOpen,
+    reorderCategories
   } = useApp();
 
   const [hideCloudBanner, setHideCloudBanner] = useState(false);
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
+  const [dragOverCategoryId, setDragOverCategoryId] = useState<string | null>(null);
+
+  const handleCategoryDragStart = (e: React.DragEvent<HTMLDivElement>, categoryId: string) => {
+    setDraggedCategoryId(categoryId);
+    setDragOverCategoryId(null);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", categoryId);
+  };
+
+  const handleCategoryDragOver = (e: React.DragEvent<HTMLDivElement>, categoryId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (draggedCategoryId && draggedCategoryId !== categoryId && dragOverCategoryId !== categoryId) {
+      setDragOverCategoryId(categoryId);
+    }
+  };
+
+  const handleCategoryDragLeave = (_e: React.DragEvent<HTMLDivElement>, categoryId: string) => {
+    if (dragOverCategoryId === categoryId) {
+      setDragOverCategoryId(null);
+    }
+  };
+
+  const handleCategoryDrop = async (e: React.DragEvent<HTMLDivElement>, targetCategoryId: string) => {
+    e.preventDefault();
+    const sourceId = draggedCategoryId || e.dataTransfer.getData("text/plain");
+    setDraggedCategoryId(null);
+    setDragOverCategoryId(null);
+
+    if (!sourceId || sourceId === targetCategoryId) return;
+
+    const currentIds = categories.map((c) => c.id);
+    const fromIndex = currentIds.indexOf(sourceId);
+    const toIndex = currentIds.indexOf(targetCategoryId);
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const nextIds = [...currentIds];
+    const [moved] = nextIds.splice(fromIndex, 1);
+    nextIds.splice(toIndex, 0, moved);
+
+    await reorderCategories(nextIds);
+  };
+
+  const handleCategoryDragEnd = () => {
+    setDraggedCategoryId(null);
+    setDragOverCategoryId(null);
+  };
 
   // Local search query inside category view
   const [categorySearchQuery, setCategorySearchQuery] = useState("");
@@ -777,7 +826,17 @@ const MainContent: React.FC = () => {
             </h3>
             <div className="grid grid-cols-1 min-[440px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-3.5">
               {colCats.map((cat) => (
-                <CategoryCard key={cat.id} category={cat} />
+                <CategoryCard
+                  key={cat.id}
+                  category={cat}
+                  isDragged={draggedCategoryId === cat.id}
+                  isDragOver={dragOverCategoryId === cat.id && draggedCategoryId !== cat.id}
+                  onDragStart={handleCategoryDragStart}
+                  onDragOver={handleCategoryDragOver}
+                  onDragLeave={handleCategoryDragLeave}
+                  onDrop={handleCategoryDrop}
+                  onDragEnd={handleCategoryDragEnd}
+                />
               ))}
             </div>
           </div>
@@ -912,7 +971,17 @@ const MainContent: React.FC = () => {
 
             {/* User Categories */}
             {categories.map((cat) => (
-              <CategoryCard key={cat.id} category={cat} />
+              <CategoryCard
+                key={cat.id}
+                category={cat}
+                isDragged={draggedCategoryId === cat.id}
+                isDragOver={dragOverCategoryId === cat.id && draggedCategoryId !== cat.id}
+                onDragStart={handleCategoryDragStart}
+                onDragOver={handleCategoryDragOver}
+                onDragLeave={handleCategoryDragLeave}
+                onDrop={handleCategoryDrop}
+                onDragEnd={handleCategoryDragEnd}
+              />
             ))}
 
             {/* Add Category Card */}

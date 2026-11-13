@@ -1,18 +1,35 @@
-import React from "react";
+import React, { useRef } from "react";
 import { useApp } from "../context/AppContext";
 import { CategoryItem } from "../types";
 import {
   Edit2,
   Trash2,
-  Lock
+  Lock,
+  GripVertical
 } from "lucide-react";
 import { renderCategoryIcon } from "../constants/icons";
 
 interface CategoryCardProps {
   category: CategoryItem;
+  isDragged?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: (e: React.DragEvent<HTMLDivElement>, categoryId: string) => void;
+  onDragOver?: (e: React.DragEvent<HTMLDivElement>, categoryId: string) => void;
+  onDragLeave?: (e: React.DragEvent<HTMLDivElement>, categoryId: string) => void;
+  onDrop?: (e: React.DragEvent<HTMLDivElement>, categoryId: string) => void;
+  onDragEnd?: (e: React.DragEvent<HTMLDivElement>) => void;
 }
 
-export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
+export const CategoryCard: React.FC<CategoryCardProps> = ({
+  category,
+  isDragged = false,
+  isDragOver = false,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd
+}) => {
   const {
     setActiveView,
     setSelectedCategoryId,
@@ -21,9 +38,12 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
     setCategoryToDelete
   } = useApp();
 
+  const wasJustDraggedRef = useRef(false);
   const hasCover = Boolean(category.coverImage);
+  const isDraggable = Boolean(onDragStart && onDrop);
 
   const handleOpenCategory = () => {
+    if (wasJustDraggedRef.current) return;
     setSelectedCategoryId(category.id);
     setActiveView("category");
   };
@@ -41,6 +61,40 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
 
   return (
     <div
+      draggable={isDraggable}
+      onDragStart={(e) => {
+        if (!isDraggable) return;
+        const targetEl = e.target as HTMLElement | null;
+        if (targetEl?.closest("button")) {
+          e.preventDefault();
+          return;
+        }
+        wasJustDraggedRef.current = true;
+        onDragStart?.(e, category.id);
+      }}
+      onDragOver={(e) => {
+        if (!isDraggable) return;
+        e.preventDefault();
+        onDragOver?.(e, category.id);
+      }}
+      onDragLeave={(e) => {
+        if (!isDraggable) return;
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          onDragLeave?.(e, category.id);
+        }
+      }}
+      onDrop={(e) => {
+        if (!isDraggable) return;
+        e.preventDefault();
+        onDrop?.(e, category.id);
+      }}
+      onDragEnd={(e) => {
+        if (!isDraggable) return;
+        onDragEnd?.(e);
+        setTimeout(() => {
+          wasJustDraggedRef.current = false;
+        }, 150);
+      }}
       onClick={handleOpenCategory}
       role="button"
       tabIndex={0}
@@ -50,10 +104,17 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
           handleOpenCategory();
         }
       }}
-      className={`group relative overflow-hidden rounded-2xl p-3 sm:p-3.5 transition-all duration-300 hover:shadow-xl cursor-pointer flex flex-col justify-between min-h-[105px] sm:min-h-[112px] border select-none ${
+      title={isDraggable ? `${category.name} (clique para abrir ou segure e arraste para mover)` : category.name}
+      className={`group relative overflow-hidden rounded-2xl p-3 sm:p-3.5 transition-all duration-200 hover:shadow-xl ${
+        isDraggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+      } flex flex-col justify-between min-h-[105px] sm:min-h-[112px] border select-none ${
         hasCover
           ? "border-slate-300/60 dark:border-slate-700/60 hover:border-blue-500 shadow-md bg-slate-900"
           : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800/80 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-lg"
+      } ${isDragged ? "opacity-45 scale-95 ring-2 ring-blue-500/60" : ""} ${
+        isDragOver
+          ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-950 border-blue-500 scale-[1.03] shadow-2xl"
+          : ""
       }`}
     >
       {/* Crystal Clear Cover Image (Nítido, Sem Opaco, Ajustado e Responsivo) */}
@@ -62,6 +123,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
           <img
             src={category.coverImage}
             alt={category.name}
+            draggable={false}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
             referrerPolicy="no-referrer"
           />
@@ -99,8 +161,21 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
           </div>
         </div>
 
-        {/* Action Buttons: Edit & Delete */}
+        {/* Action Buttons: Drag hint, Edit & Delete */}
         <div className="relative z-10 flex items-center gap-1 shrink-0">
+          {isDraggable && (
+            <span
+              aria-hidden="true"
+              className={`p-1 rounded-lg opacity-0 group-hover:opacity-80 transition-opacity pointer-events-none ${
+                hasCover
+                  ? "bg-slate-950/60 text-white/90 border border-white/15"
+                  : "text-slate-400"
+              }`}
+            >
+              <GripVertical className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+            </span>
+          )}
+
           <button
             onClick={handleEdit}
             title="Editar categoria"

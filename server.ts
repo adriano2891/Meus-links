@@ -612,7 +612,9 @@ app.get("/api/data", async (req, res) => {
   const userCollections = mergeById(dbCollections, supabaseData?.collections || []);
 
   const dbCategories = db.categories.filter((c) => c.userId === user.id);
-  const userCategories = mergeById(dbCategories, supabaseData?.categories || []);
+  const userCategories = mergeById(dbCategories, supabaseData?.categories || []).sort(
+    (a: any, b: any) => (a.order ?? 0) - (b.order ?? 0)
+  );
 
   const dbSubcategories = (db.subcategories || []).filter((s) => s.userId === user.id);
   const userSubcategories = mergeById(dbSubcategories, supabaseData?.subcategories || []);
@@ -1031,7 +1033,9 @@ app.get("/api/categories", async (req, res) => {
   const db = readDb();
   const supabaseData = await getSupabaseAllData(user.id);
   const dbCategories = db.categories.filter((c) => c.userId === user.id);
-  const userCategories = mergeById(dbCategories, supabaseData?.categories || []);
+  const userCategories = mergeById(dbCategories, supabaseData?.categories || []).sort(
+    (a: any, b: any) => (a.order ?? 0) - (b.order ?? 0)
+  );
   res.json(userCategories);
 });
 
@@ -1080,6 +1084,40 @@ app.post("/api/categories", async (req, res) => {
   }
 
   res.status(201).json(newCat);
+});
+
+app.put("/api/categories/reorder", async (req, res) => {
+  const user = getAuthUser(req);
+  if (!user) return res.status(401).json({ error: "Não autenticado." });
+  const { orderedCategoryIds } = req.body;
+  if (!Array.isArray(orderedCategoryIds)) {
+    return res.status(400).json({ error: "Formato inválido." });
+  }
+
+  const db = readDb();
+  const updatedCats: any[] = [];
+  const now = new Date().toISOString();
+  orderedCategoryIds.forEach((id: string, index: number) => {
+    const cat = db.categories.find((c) => c.id === id && c.userId === user.id);
+    if (cat) {
+      cat.order = index + 1;
+      cat.updatedAt = now;
+      updatedCats.push(cat);
+    }
+  });
+
+  writeDb(db);
+
+  // Sync updated order to Supabase
+  for (const cat of updatedCats) {
+    try {
+      await upsertSupabaseCategory(cat);
+    } catch (err) {
+      console.error("Supabase category reorder sync error:", err);
+    }
+  }
+
+  res.json({ success: true });
 });
 
 app.put("/api/categories/:id", async (req, res) => {
