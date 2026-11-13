@@ -19,13 +19,6 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Listener for session & category sync messages from content scripts and web pages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'CATEGORIES_UPDATED') {
-    if (Array.isArray(request.categories) && request.categories.length > 0) {
-      chrome.storage.local.set({
-        categories: request.categories,
-        subcategories: request.subcategories || [],
-        lastSync: Date.now()
-      });
-    }
     sendResponse({ ok: true });
     return false;
   }

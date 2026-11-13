@@ -104,8 +104,18 @@ const storage = {
   }
 };
 
+let currentActiveView = "";
+
 // Switch Views Helper
 function showView(viewId) {
+  if (currentActiveView === viewId) {
+    if (viewId === "save" && appState.user && headerUserEmail) {
+      headerUserEmail.textContent = appState.user.name || appState.user.email;
+    }
+    return;
+  }
+  currentActiveView = viewId;
+
   if (loadingView) loadingView.style.display = "none";
   if (loginView) loginView.style.display = "none";
   if (saveView) saveView.style.display = "none";
@@ -145,21 +155,27 @@ function showView(viewId) {
 // -------------------------------------------------------------
 // Universal App Tab Finder (Prioritizes Netlify and real App tabs)
 // -------------------------------------------------------------
+function getConfiguredAppHostname() {
+  try {
+    return new URL(appState.serverUrl || DEFAULT_SERVER_URL).hostname;
+  } catch {
+    return "links-inteligentes.netlify.app";
+  }
+}
+
 function isTabAppCandidate(tab) {
   if (!tab || !tab.url) return false;
   try {
     const u = new URL(tab.url);
+    const configuredHost = getConfiguredAppHostname();
+    if (u.hostname.includes("aistudio.google.com")) return false;
     if (
-      u.hostname.includes("netlify.app") ||
-      u.hostname.includes("vercel.app") ||
-      u.hostname.includes("run.app") ||
+      u.hostname === "links-inteligentes.netlify.app" ||
+      u.hostname === configuredHost ||
+      (tab.title && (tab.title.includes("Meus Links") || tab.title.includes("LinkVault"))) ||
+      u.hostname.endsWith(".run.app") ||
       u.hostname === "localhost" ||
-      u.hostname === "127.0.0.1" ||
-      u.hostname.includes("aistudio.google.com") ||
-      (tab.title &&
-        (tab.title.includes("Meus Links") ||
-          tab.title.includes("LinkVault") ||
-          tab.title.includes("Google AI Studio")))
+      u.hostname === "127.0.0.1"
     ) {
       return true;
     }
@@ -170,30 +186,31 @@ function isTabAppCandidate(tab) {
 async function findAppTab() {
   if (typeof chrome === "undefined" || !chrome.tabs || !chrome.tabs.query) return null;
   try {
-    // 1. Check current active tab first
-    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (activeTabs && activeTabs[0] && isTabAppCandidate(activeTabs[0])) {
-      return activeTabs[0];
-    }
-
-    // 2. Query all tabs across all windows, PRIORITIZING Netlify tabs
+    const configuredHost = getConfiguredAppHostname();
     const allTabs = await chrome.tabs.query({});
-    for (const tab of allTabs) {
-      if (!tab.url) continue;
-      try {
-        const u = new URL(tab.url);
-        if (u.hostname.includes("netlify.app") || (tab.title && tab.title.includes("Meus Links"))) {
-          return tab;
-        }
-      } catch {}
-    }
 
+    // 1. Prioritize exact Netlify App or explicit Meus Links tab across all tabs
     for (const tab of allTabs) {
       if (!tab.url) continue;
       try {
         const u = new URL(tab.url);
         if (
-          u.hostname.includes("run.app") ||
+          u.hostname === "links-inteligentes.netlify.app" ||
+          u.hostname === configuredHost ||
+          (tab.title && tab.title.includes("Meus Links"))
+        ) {
+          return tab;
+        }
+      } catch {}
+    }
+
+    // 2. Fallback to Cloud Run / localhost preview tabs
+    for (const tab of allTabs) {
+      if (!tab.url) continue;
+      try {
+        const u = new URL(tab.url);
+        if (
+          u.hostname.endsWith(".run.app") ||
           u.hostname === "localhost" ||
           u.hostname === "127.0.0.1"
         ) {
@@ -218,13 +235,13 @@ async function executeApiInTab(tabId, endpoint, options = {}) {
       target: { tabId: tabId, allFrames: true },
       func: async (endpoint, options) => {
         const hostname = window.location.hostname;
+        const hasAppStorage =
+          localStorage.getItem("meuslinks_offline_data") !== null ||
+          localStorage.getItem("meuslinks_categories") !== null;
         const isAppFrame =
-          hostname.includes("netlify.app") ||
-          hostname.includes("vercel.app") ||
-          hostname.includes("run.app") ||
-          hostname === "localhost" ||
-          hostname === "127.0.0.1" ||
-          (document.title && document.title.includes("Meus Links"));
+          hostname === "links-inteligentes.netlify.app" ||
+          (document.title && (document.title.includes("Meus Links") || document.title.includes("LinkVault"))) ||
+          (hasAppStorage && !hostname.includes("aistudio.google.com"));
 
         if (!isAppFrame) return null;
 
@@ -565,6 +582,8 @@ async function detectAndSyncFromTabs(interactive = false) {
     }
 
     if (session) {
+      const prevSig = buildCategoriesSignature(appState.categories, appState.subcategories);
+
       if (session.token) {
         appState.authToken = session.token;
       }
@@ -587,6 +606,8 @@ async function detectAndSyncFromTabs(interactive = false) {
         appState.subcategories = session.subcategories;
       }
 
+      const nextSig = buildCategoriesSignature(appState.categories, appState.subcategories);
+
       storage.set({
         authToken: appState.authToken,
         user: appState.user,
@@ -597,8 +618,15 @@ async function detectAndSyncFromTabs(interactive = false) {
         supabaseKey: appState.supabaseKey
       });
 
-      renderCategoriesAndSubcategories();
-      showView("save");
+      if (nextSig !== prevSig || interactive) {
+        renderCategoriesAndSubcategories(
+          categorySelect ? categorySelect.value : null,
+          subcategorySelect ? subcategorySelect.value : null
+        );
+      }
+      if (interactive || currentActiveView !== "save") {
+        showView("save");
+      }
       return true;
     }
   } catch (err) {
@@ -618,21 +646,58 @@ function showLoginNotice(msg) {
 }
 
 // -------------------------------------------------------------
-// Render Dropdowns with current categories and subcategories
+// Render Dropdowns with current categories and subcategories (Stable & Non-Interruptive)
 // -------------------------------------------------------------
-function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId = null) {
+let lastRenderedSignature = "";
+let isSelectInteracting = false;
+let pendingSyncRender = false;
+let autoCheckedFav = false;
+
+function buildCategoriesSignature(cats, subs) {
+  const c = Array.isArray(cats)
+    ? cats.map((item) => ({ id: item.id, name: item.name || "" }))
+    : [];
+  const s = Array.isArray(subs)
+    ? subs.map((item) => ({ id: item.id, categoryId: item.categoryId, name: item.name || "" }))
+    : [];
+  return JSON.stringify({ c, s });
+}
+
+function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId = null, force = false) {
   if (!categorySelect) return;
 
-  const rawSelection = preferredCatId || categorySelect.value;
-  categorySelect.innerHTML = `<option value="">-- Selecione uma categoria (obrigatório) --</option>`;
+  const nextSig = buildCategoriesSignature(appState.categories, appState.subcategories);
+  const rawSelection = preferredCatId !== null ? preferredCatId : categorySelect.value;
+  const rawSubSelection = preferredSubId !== null ? preferredSubId : (subcategorySelect ? subcategorySelect.value : "");
+
+  if (!force && nextSig === lastRenderedSignature && categorySelect.options.length > 1) {
+    return;
+  }
+
+  // Never destroy/rebuild native <select> options while user is interacting with the dropdown
+  if (
+    !force &&
+    (isSelectInteracting ||
+      document.activeElement === categorySelect ||
+      document.activeElement === subcategorySelect)
+  ) {
+    pendingSyncRender = true;
+    return;
+  }
+
+  pendingSyncRender = false;
+  lastRenderedSignature = nextSig;
+
+  categorySelect.innerHTML = "";
+  const placeholderOpt = document.createElement("option");
+  placeholderOpt.value = "";
+  placeholderOpt.textContent = "-- Selecione uma categoria (obrigatório) --";
+  categorySelect.appendChild(placeholderOpt);
 
   // 1. Sempre incluir ⭐ Favoritos (Padrão) como categoria padrão do sistema (id: "favorites")
   const favOption = document.createElement("option");
   favOption.value = "favorites";
   favOption.textContent = "⭐ Favoritos (Padrão)";
-  if (rawSelection === "favorites" || (!rawSelection && appState.categories.length === 0)) {
-    favOption.selected = true;
-  }
   categorySelect.appendChild(favOption);
 
   // 2. Incluir todas as categorias criadas pelo usuário no App
@@ -644,11 +709,19 @@ function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId 
       const opt = document.createElement("option");
       opt.value = cat.id;
       opt.textContent = `📁 ${cat.name}${subCountText}`;
-      if (cat.id === rawSelection) {
-        opt.selected = true;
-      }
       categorySelect.appendChild(opt);
     });
+  }
+
+  // Restore exact valid selection without snapping back unexpectedly
+  const hasSelectionOption =
+    rawSelection && Array.from(categorySelect.options).some((opt) => opt.value === rawSelection);
+  if (hasSelectionOption) {
+    categorySelect.value = rawSelection;
+  } else if (!rawSelection && (!appState.categories || appState.categories.length === 0)) {
+    categorySelect.value = "favorites";
+  } else {
+    categorySelect.value = "";
   }
 
   if (categoryHint) {
@@ -656,7 +729,7 @@ function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId 
     categoryHint.style.color = "";
   }
 
-  updateSubcategoriesDropdown(categorySelect.value, preferredSubId);
+  updateSubcategoriesDropdown(categorySelect.value, rawSubSelection);
 }
 
 // -------------------------------------------------------------
@@ -665,21 +738,21 @@ function renderCategoriesAndSubcategories(preferredCatId = null, preferredSubId 
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.action === "CATEGORIES_UPDATED") {
-      let changed = false;
-      if (Array.isArray(msg.categories) && msg.categories.length > 0) {
-        appState.categories = msg.categories;
-        changed = true;
-      }
-      if (Array.isArray(msg.subcategories)) {
-        appState.subcategories = msg.subcategories;
-        changed = true;
-      }
-      if (changed) {
+      const nextCats = Array.isArray(msg.categories) && msg.categories.length > 0 ? msg.categories : appState.categories;
+      const nextSubs = Array.isArray(msg.subcategories) ? msg.subcategories : appState.subcategories;
+      const prevSig = buildCategoriesSignature(appState.categories, appState.subcategories);
+      const nextSig = buildCategoriesSignature(nextCats, nextSubs);
+      if (nextSig !== prevSig) {
+        appState.categories = nextCats;
+        appState.subcategories = nextSubs;
         storage.set({
           categories: appState.categories,
           subcategories: appState.subcategories
         });
-        renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
+        renderCategoriesAndSubcategories(
+          categorySelect ? categorySelect.value : null,
+          subcategorySelect ? subcategorySelect.value : null
+        );
       }
     }
   });
@@ -689,17 +762,23 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
 if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "local") {
-      let shouldRender = false;
-      if (changes.categories && Array.isArray(changes.categories.newValue)) {
-        appState.categories = changes.categories.newValue;
-        shouldRender = true;
-      }
-      if (changes.subcategories && Array.isArray(changes.subcategories.newValue)) {
-        appState.subcategories = changes.subcategories.newValue;
-        shouldRender = true;
-      }
-      if (shouldRender) {
-        renderCategoriesAndSubcategories(categorySelect ? categorySelect.value : null, subcategorySelect ? subcategorySelect.value : null);
+      const nextCats =
+        changes.categories && Array.isArray(changes.categories.newValue) && changes.categories.newValue.length > 0
+          ? changes.categories.newValue
+          : appState.categories;
+      const nextSubs =
+        changes.subcategories && Array.isArray(changes.subcategories.newValue)
+          ? changes.subcategories.newValue
+          : appState.subcategories;
+      const prevSig = buildCategoriesSignature(appState.categories, appState.subcategories);
+      const nextSig = buildCategoriesSignature(nextCats, nextSubs);
+      if (nextSig !== prevSig) {
+        appState.categories = nextCats;
+        appState.subcategories = nextSubs;
+        renderCategoriesAndSubcategories(
+          categorySelect ? categorySelect.value : null,
+          subcategorySelect ? subcategorySelect.value : null
+        );
       }
     }
   });
@@ -787,12 +866,47 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  // Protect <select> dropdowns against background re-renders while open/focused
+  [categorySelect, subcategorySelect].forEach((sel) => {
+    if (!sel) return;
+    sel.addEventListener("mousedown", () => {
+      isSelectInteracting = true;
+    });
+    sel.addEventListener("focus", () => {
+      isSelectInteracting = true;
+    });
+    sel.addEventListener("blur", () => {
+      isSelectInteracting = false;
+      if (pendingSyncRender) {
+        setTimeout(() => {
+          if (!isSelectInteracting && pendingSyncRender) {
+            renderCategoriesAndSubcategories(
+              categorySelect ? categorySelect.value : null,
+              subcategorySelect ? subcategorySelect.value : null,
+              true
+            );
+          }
+        }, 60);
+      }
+    });
+  });
+
   // Event Listeners
   if (loginForm) loginForm.addEventListener("submit", handleLogin);
   if (saveForm) saveForm.addEventListener("submit", handleSaveLink);
   if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
-  if (categorySelect) categorySelect.addEventListener("change", handleCategoryChange);
-  if (subcategorySelect) subcategorySelect.addEventListener("change", handleSubcategoryChange);
+  if (categorySelect) {
+    categorySelect.addEventListener("change", () => {
+      isSelectInteracting = false;
+      handleCategoryChange();
+    });
+  }
+  if (subcategorySelect) {
+    subcategorySelect.addEventListener("change", () => {
+      isSelectInteracting = false;
+      handleSubcategoryChange();
+    });
+  }
 
   // Success view actions
   if (openAppBtn) {
@@ -904,85 +1018,132 @@ function handleCategoryChange() {
       categoryHint.textContent = "A seleção de categoria é obrigatória para salvar.";
       categoryHint.style.color = "#ef4444";
     }
+    if (autoCheckedFav && isFavorite) {
+      isFavorite.checked = false;
+      autoCheckedFav = false;
+    }
   } else if (selectedCatId === "favorites") {
     if (categoryHint) {
       categoryHint.textContent = "⭐ Categoria Favoritos (Padrão) selecionada.";
       categoryHint.style.color = "#f59e0b";
     }
-    if (isFavorite) isFavorite.checked = true;
+    if (isFavorite && !isFavorite.checked) {
+      isFavorite.checked = true;
+      autoCheckedFav = true;
+    }
   } else {
     if (categoryHint) {
       categoryHint.textContent = "Categoria selecionada com sucesso.";
       categoryHint.style.color = "var(--success-color)";
+    }
+    if (autoCheckedFav && isFavorite) {
+      isFavorite.checked = false;
+      autoCheckedFav = false;
     }
   }
 
   updateSubcategoriesDropdown(selectedCatId);
 }
 
-// Subcategory Dropdown Updater
+// Subcategory Dropdown Updater (Safe DOM nodes, preserves exact selection)
 function updateSubcategoriesDropdown(selectedCatId, preserveSelectedSubId = null) {
   if (!subcategorySelect) return;
 
+  subcategorySelect.innerHTML = "";
+  subcategorySelect.disabled = false;
+
   // Case 0: Categoria padrão Favoritos
   if (selectedCatId === "favorites") {
-    subcategorySelect.disabled = false;
-    subcategorySelect.innerHTML = `<option value="">📁 Padrão (salvar na categoria Favoritos)</option>`;
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "📁 Padrão (salvar na categoria Favoritos)";
+    subcategorySelect.appendChild(opt);
+    subcategorySelect.value = "";
     if (subcatCountBadge) subcatCountBadge.textContent = "Padrão";
     if (subcategoryHint) subcategoryHint.textContent = "O link será guardado na categoria Favoritos do App.";
-    if (isFavorite) isFavorite.checked = true;
     return;
   }
 
   // Case 1: No category selected yet -> list all subcategories grouped by category
   if (!selectedCatId) {
-    subcategorySelect.disabled = false;
-    let optionsHtml = `<option value="">-- Selecione uma subcategoria ou escolha a categoria acima --</option>`;
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
     let totalSubs = 0;
 
     (appState.categories || []).forEach((cat) => {
       const catSubs = (appState.subcategories || []).filter((s) => s.categoryId === cat.id);
       if (catSubs.length > 0) {
         totalSubs += catSubs.length;
-        optionsHtml += `<optgroup label="📁 ${cat.name}">`;
+        const group = document.createElement("optgroup");
+        group.label = `📁 ${cat.name}`;
         catSubs.forEach((sub) => {
-          const isSelected = preserveSelectedSubId === sub.id ? " selected" : "";
-          optionsHtml += `<option value="${sub.id}" data-category-id="${cat.id}"${isSelected}>↳ 📂 ${sub.name}</option>`;
+          const opt = document.createElement("option");
+          opt.value = sub.id;
+          opt.dataset.categoryId = cat.id;
+          opt.textContent = `↳ 📂 ${sub.name}`;
+          group.appendChild(opt);
         });
-        optionsHtml += `</optgroup>`;
+        subcategorySelect.appendChild(group);
       }
     });
 
     if (totalSubs === 0) {
-      optionsHtml = `<option value="">📁 Nenhuma subcategoria cadastrada no App ainda</option>`;
+      placeholder.textContent = "📁 Nenhuma subcategoria cadastrada no App ainda";
+      subcategorySelect.prepend(placeholder);
       if (subcatCountBadge) subcatCountBadge.textContent = "0 disponíveis";
       if (subcategoryHint) subcategoryHint.textContent = "Você pode criar subcategorias na página principal do App.";
     } else {
+      placeholder.textContent = "-- Selecione uma subcategoria ou escolha a categoria acima --";
+      subcategorySelect.prepend(placeholder);
       if (subcatCountBadge) subcatCountBadge.textContent = `${totalSubs} disponíveis`;
       if (subcategoryHint) subcategoryHint.textContent = "Selecione uma subcategoria ou escolha a categoria acima.";
     }
 
-    subcategorySelect.innerHTML = optionsHtml;
+    if (
+      preserveSelectedSubId &&
+      Array.from(subcategorySelect.options).some((o) => o.value === preserveSelectedSubId)
+    ) {
+      subcategorySelect.value = preserveSelectedSubId;
+    } else {
+      subcategorySelect.value = "";
+    }
     return;
   }
 
   // Case 2: Specific category is selected -> show its subcategories
-  subcategorySelect.disabled = false;
   const filtered = (appState.subcategories || []).filter((s) => s.categoryId === selectedCatId);
   const currentCat = (appState.categories || []).find((c) => c.id === selectedCatId);
   const catName = currentCat ? currentCat.name : "categoria selecionada";
 
+  const rootOpt = document.createElement("option");
+  rootOpt.value = "";
+
   if (filtered.length > 0) {
-    let optionsHtml = `<option value="">📁 Nenhuma (salvar na raiz de "${catName}")</option>`;
+    rootOpt.textContent = `📁 Nenhuma (salvar na raiz de "${catName}")`;
+    subcategorySelect.appendChild(rootOpt);
+
     filtered.forEach((sub) => {
-      const isSelected = preserveSelectedSubId === sub.id ? " selected" : "";
-      optionsHtml += `<option value="${sub.id}"${isSelected}>↳ 📂 ${sub.name}</option>`;
+      const opt = document.createElement("option");
+      opt.value = sub.id;
+      opt.textContent = `↳ 📂 ${sub.name}`;
+      subcategorySelect.appendChild(opt);
     });
-    subcategorySelect.innerHTML = optionsHtml;
+
+    if (
+      preserveSelectedSubId &&
+      Array.from(subcategorySelect.options).some((o) => o.value === preserveSelectedSubId)
+    ) {
+      subcategorySelect.value = preserveSelectedSubId;
+    } else {
+      subcategorySelect.value = "";
+    }
+
     if (subcatCountBadge) subcatCountBadge.textContent = `${filtered.length} disponível${filtered.length > 1 ? "is" : ""}`;
     if (subcategoryHint) subcategoryHint.textContent = `Selecione uma subcategoria ou salve na raiz de "${catName}".`;
   } else {
-    subcategorySelect.innerHTML = `<option value="">📁 Nenhuma subcategoria cadastrada nesta categoria</option>`;
+    rootOpt.textContent = "📁 Nenhuma subcategoria cadastrada nesta categoria";
+    subcategorySelect.appendChild(rootOpt);
+    subcategorySelect.value = "";
     if (subcatCountBadge) subcatCountBadge.textContent = "0 disponíveis";
     if (subcategoryHint) subcategoryHint.textContent = `O link será guardado na raiz da categoria "${catName}".`;
   }
@@ -997,6 +1158,10 @@ function handleSubcategoryChange() {
   if (foundSub && foundSub.categoryId) {
     if (categorySelect.value !== foundSub.categoryId) {
       categorySelect.value = foundSub.categoryId;
+      if (autoCheckedFav && isFavorite) {
+        isFavorite.checked = false;
+        autoCheckedFav = false;
+      }
       if (categoryHint) {
         categoryHint.textContent = "Categoria selecionada automaticamente pela subcategoria.";
         categoryHint.style.color = "var(--success-color)";

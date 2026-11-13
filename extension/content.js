@@ -8,23 +8,19 @@
   function isMeusLinksApp() {
     try {
       const host = window.location.hostname;
+      if (host === "links-inteligentes.netlify.app") {
+        return true;
+      }
       if (
-        host.includes("netlify.app") ||
-        host.includes("vercel.app") ||
-        host.includes("run.app") ||
-        host === "localhost" ||
-        host === "127.0.0.1" ||
-        host.includes("aistudio.google.com")
+        document.title &&
+        (document.title.includes("Meus Links") || document.title.includes("LinkVault"))
       ) {
         return true;
       }
-      if (document.title && (document.title.includes("Meus Links") || document.title.includes("LinkVault"))) {
-        return true;
-      }
       if (
+        localStorage.getItem("meuslinks_offline_data") !== null ||
         localStorage.getItem("meuslinks_categories") !== null ||
-        localStorage.getItem("meuslinks_token") !== null ||
-        localStorage.getItem("meuslinks_offline_data") !== null
+        localStorage.getItem("meuslinks_token") !== null
       ) {
         return true;
       }
@@ -83,12 +79,27 @@
     return [];
   }
 
-  // Sincroniza sessão, categorias e subcategorias atuais com o armazenamento da extensão
-  function syncWithExtension(customCats = null, customSubs = null) {
+  let lastSyncSignature = "";
+
+  // Sincroniza sessão, categorias e subcategorias atuais com o armazenamento da extensão (somente quando houver alteração)
+  function syncWithExtension(customCats = null, customSubs = null, force = false) {
     const token = getLocalToken();
     const user = getLocalUser();
     const categories = customCats !== null && Array.isArray(customCats) ? customCats : getLocalCategories();
     const subcategories = customSubs !== null && Array.isArray(customSubs) ? customSubs : getLocalSubcategories();
+
+    const sig = JSON.stringify({
+      token: token || null,
+      userId: user ? user.id : null,
+      origin: window.location.origin,
+      categories,
+      subcategories
+    });
+
+    if (!force && sig === lastSyncSignature) {
+      return;
+    }
+    lastSyncSignature = sig;
 
     const supaUrl = localStorage.getItem("meuslinks_supabase_url");
     const supaKey = localStorage.getItem("meuslinks_supabase_anon_key") || localStorage.getItem("meuslinks_supabase_key");
@@ -139,16 +150,16 @@
 
           let hasNew = false;
           res.pending_links.forEach((link) => {
-            if (!db.links.some((l) => l.url === link.url || l.id === link.id)) {
+            if (!db.links.some((l) => l.id === link.id)) {
               db.links.unshift(link);
               hasNew = true;
               window.dispatchEvent(new CustomEvent("meuslinks_external_save", { detail: { link } }));
-              window.postMessage({ type: "MEUS_LINKS_DATA_CHANGED", link }, "*");
             }
           });
 
           if (hasNew) {
             localStorage.setItem("meuslinks_offline_data", JSON.stringify(db));
+            localStorage.setItem("meuslinks_has_unsynced_local_data", "true");
           }
           chrome.storage.local.remove(["pending_links"]);
         }
@@ -162,14 +173,14 @@
   syncWithExtension();
   processPendingLinks();
 
-  // Verificação contínua periódica a cada 2 segundos para garantir sincronização instantânea
+  // Verificação periódica leve (dispara apenas se algo mudou)
   setInterval(() => {
     syncWithExtension();
-  }, 2000);
+  }, 5000);
 
   setInterval(() => {
     processPendingLinks();
-  }, 4000);
+  }, 5000);
 
   // Monitora foco e visibilidade
   window.addEventListener("focus", () => {
@@ -400,7 +411,7 @@
     }
 
     if (request.action === "FORCE_SYNC") {
-      syncWithExtension();
+      syncWithExtension(null, null, true);
       sendResponse({
         ok: true,
         token: getLocalToken(),

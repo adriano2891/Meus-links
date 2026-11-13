@@ -594,9 +594,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [addToast, persistCloudCache, refreshData]);
 
   // Real-time synchronization listener for extension link saves
+  const recentExtSaveIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const syncSavedLinkFromExtension = async (savedLink: any) => {
       if (!savedLink) return;
+      const dedupKey = savedLink.id || `${savedLink.url || ""}:${savedLink.categoryId || ""}`;
+      if (dedupKey && recentExtSaveIdsRef.current.has(dedupKey)) return;
+      if (dedupKey) {
+        recentExtSaveIdsRef.current.add(dedupKey);
+        setTimeout(() => recentExtSaveIdsRef.current.delete(dedupKey), 5000);
+      }
+
       const fbUser = firebaseUserRef.current;
       if (fbUser) {
         try {
