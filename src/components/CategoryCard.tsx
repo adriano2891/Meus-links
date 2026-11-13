@@ -2,7 +2,6 @@ import React from "react";
 import { useApp } from "../context/AppContext";
 import { CategoryItem } from "../types";
 import {
-  Folder,
   Edit2,
   Trash2,
   Lock
@@ -15,8 +14,6 @@ interface CategoryCardProps {
 
 export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
   const {
-    links,
-    subcategories,
     setActiveView,
     setSelectedCategoryId,
     setEditingCategory,
@@ -24,8 +21,6 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
     setCategoryToDelete
   } = useApp();
 
-  const catLinks = links.filter((l) => l.categoryId === category.id && !l.isShortcut);
-  const catSubs = subcategories.filter((s) => s.categoryId === category.id);
   const hasCover = Boolean(category.coverImage);
 
   const handleOpenCategory = () => {
@@ -132,57 +127,6 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
         </div>
       </div>
 
-      {/* Middle Row: Subcategory Chips Preview (Subcategorias Criadas nesta Categoria) */}
-      {catSubs.length > 0 && (
-        <div className="relative z-10 flex flex-wrap items-center gap-1 my-1.5">
-          {catSubs.slice(0, 3).map((sub) => {
-            const subLinksCount = catLinks.filter((l) => l.subcategoryId === sub.id).length;
-            return (
-              <span
-                key={sub.id}
-                title={`Subcategoria: ${sub.name} (${subLinksCount} links)`}
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-md inline-flex items-center gap-1 truncate max-w-[140px] transition-colors ${
-                  hasCover
-                    ? "bg-slate-950/60 text-slate-100 backdrop-blur-xs border border-white/10"
-                    : "bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
-                }`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: sub.color || category.color || "#3B82F6" }} />
-                <span className="truncate">{sub.name}</span>
-                {subLinksCount > 0 && (
-                  <span className="opacity-70 text-[9px] font-normal">({subLinksCount})</span>
-                )}
-              </span>
-            );
-          })}
-          {catSubs.length > 3 && (
-            <span
-              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${
-                hasCover
-                  ? "bg-slate-950/60 text-slate-300"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-              }`}
-            >
-              +{catSubs.length - 3}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Bottom Row: Links & Subcategories Count */}
-      <div className="relative z-10 flex items-center justify-between mt-auto pt-1.5">
-        <span
-          className={`text-[11px] font-medium truncate ${
-            hasCover
-              ? "text-slate-200 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-              : "text-slate-400 dark:text-slate-500"
-          }`}
-        >
-          {catSubs.length > 0
-            ? `${catSubs.length} ${catSubs.length === 1 ? "subcategoria" : "subcategorias"} • ${catLinks.length} ${catLinks.length === 1 ? "link" : "links"}`
-            : `${catLinks.length} ${catLinks.length === 1 ? "link" : "links"}`}
-        </span>
-      </div>
     </div>
   );
 };
